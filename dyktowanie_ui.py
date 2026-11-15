@@ -1076,15 +1076,25 @@ class MainWindow(QMainWindow):
         self.model_combo.setMaxVisibleItems(24)
         self._fill_models()
         form.addWidget(self.model_combo)
+        self.device_label = field_label("Silnik i karta graficzna")
+        form.addWidget(self.device_label)
         self.device_combo = QComboBox()
-        self.device_combo.addItem("Karta graficzna, jeśli dostępna", "auto")
+        self.device_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+
+        def add_engine(text: str, value: str, tip: str):
+            self.device_combo.addItem(text, value)
+            self.device_combo.setItemData(self.device_combo.count() - 1, tip, Qt.ItemDataRole.ToolTipRole)
+
+        add_engine("Automatycznie (zalecane)", "auto",
+                   "Program sam wybiera najszybszy silnik dla wykrytej karty graficznej.")
+        if self.hardware.accelerated:
+            add_engine("Karta NVIDIA — silnik CUDA", "cuda",
+                       "Pierwszy silnik (faster-whisper) na karcie NVIDIA.")
         if whispercpp.available():
-            self.device_combo.addItem(
-                f"Karta graficzna — silnik {whispercpp.BACKEND_LABEL[whispercpp.BACKEND]}", "gpu2")
-            self.device_combo.setItemData(
-                1, "Drugi silnik rozpoznawania (whisper.cpp). Działa na kartach AMD, Intel i NVIDIA.",
-                Qt.ItemDataRole.ToolTipRole)
-        self.device_combo.addItem("Tylko procesor (CPU)", "cpu")
+            backend = whispercpp.BACKEND_LABEL[whispercpp.BACKEND]
+            add_engine(f"Karta graficzna — silnik {backend}", "gpu2",
+                       "Drugi silnik (whisper.cpp). Działa na kartach AMD, Intel i NVIDIA.")
+        add_engine("Tylko procesor (CPU)", "cpu", "Bez karty graficznej — najwolniej.")
         form.addWidget(self.device_combo)
         self.hardware_hint = helper_label(self.hardware.summary)
         form.addWidget(self.hardware_hint)
@@ -1469,6 +1479,7 @@ class MainWindow(QMainWindow):
     def _update_model_extras(self, key: str):
         cloud = is_cloud_key(key)
         self.device_combo.setVisible(not cloud)
+        self.device_label.setVisible(not cloud)
         self.hardware_hint.setVisible(not cloud)
         self.custom_button.setText("Edytuj model…" if key.startswith("custom:") else "Własny model…")
         if cloud:
@@ -1621,7 +1632,7 @@ class MainWindow(QMainWindow):
         local = not is_cloud_key(self._current_model)
         wanted = (
             local and state == "missing"
-            and self.device_combo.currentData() == "auto"
+            and self.device_combo.currentData() in ("auto", "cuda")
             and not self.settings.value("gpu_banner_dismissed", False, type=bool)
         )
         if wanted and not self._gpu_auto_tried:
@@ -1645,8 +1656,11 @@ class MainWindow(QMainWindow):
         # Komputer bez karty NVIDIA: podpowiadamy, jak uzyskać dobrą szybkość.
         info = self.model_info
         on_cpu = info is not None and info.device == "cpu"
-        if on_cpu and self.hardware.backend in ("vulkan", "metal"):
-            # Karta jest, ale silnik nie zdołał jej użyć (sterownik, brak obsługi Vulkan).
+        chose_cpu = self.device_combo.currentData() == "cpu"
+        if chose_cpu:
+            hint = "Wybrano liczenie na procesorze — karta graficzna nie jest używana."
+        elif on_cpu and self.hardware.backend != "cpu":
+            # Karta jest, ale silnik nie zdołał jej użyć (sterownik, brak obsługi Vulkan / CUDA).
             hint = (f"Karta {self.hardware.card} nie obsłużyła przyspieszenia — rozpoznawanie liczy procesor. "
                     "Zaktualizuj sterownik karty graficznej.")
         else:
@@ -1654,7 +1668,7 @@ class MainWindow(QMainWindow):
         self.hardware_hint.setText(hint)
         self.cpu_banner.set_message("Rozpoznawanie mowy liczy procesor", hint)
         self.cpu_banner.setVisible(
-            local and on_cpu and state != "missing"
+            local and on_cpu and not chose_cpu and state != "missing"
             and not self.settings.value("cpu_banner_dismissed", False, type=bool)
         )
 

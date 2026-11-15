@@ -44,7 +44,7 @@ class FakeEngine:
         pass
 
     def load(self, key, device, resolved=None):
-        info = ModelInfo(key, "large-v3-turbo", "cpu", "int8", "Silero")
+        info = ModelInfo(key, "large-v3-turbo", "cuda", "int8_float16", "Silero")
         QTimer.singleShot(0, lambda: self.callbacks.ready(info))
 
     def start_listening(self, _device=None):

@@ -178,6 +178,8 @@ def gpu_acceleration_state() -> str:
 
 
 def cuda_device_count() -> int:
+    if os.environ.get("MYDICT_BEZ_CUDA"):
+        return 0   # diagnostyka: zachowuj się jak komputer bez karty NVIDIA (test ścieżki AMD / Intel)
     try:
         import ctranslate2
 
@@ -1150,8 +1152,8 @@ class DictationEngine:
         """whisper.cpp (Vulkan / Metal) bierzemy wtedy, gdy nie ma działającego NVIDIA CUDA."""
         if device == "cpu" or not whispercpp.available():
             return False
-        if os.environ.get("MYDICT_SILNIK") == "whispercpp":
-            return True
+        if device == "gpu2" or os.environ.get("MYDICT_SILNIK") == "whispercpp":
+            return True   # wybór ręczny: silnik Vulkan / Metal także na karcie NVIDIA
         cuda = IS_WINDOWS and cuda_device_count() > 0 and prepare_gpu_libraries()
         return not cuda
 

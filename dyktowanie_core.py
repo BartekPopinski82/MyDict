@@ -24,6 +24,8 @@ from typing import Callable
 
 import numpy as np
 
+from dyktowanie_komendy import render_dictation
+
 
 SAMPLE_RATE = 16000
 VAD_FRAME = 512  # 32 ms przy 16 kHz — rozmiar ramki modelu Silero
@@ -625,6 +627,7 @@ class SessionText:
         self.committed = ""
         self.utterance = ""
         self.tentative = ""
+        self._right_glue = False
 
     def partial(self, delta: str, tentative: str):
         self.utterance += delta
@@ -632,22 +635,21 @@ class SessionText:
 
     def final(self, delta: str):
         self.utterance += delta
-        self.committed += self._format(self.utterance)
+        addition, self._right_glue = self._render(self.utterance)
+        self.committed += addition
         self.utterance = ""
         self.tentative = ""
 
-    def _format(self, raw: str) -> str:
-        body = raw.lstrip()
-        if not body:
-            return ""
-        if not self.committed:
-            return (" " if self.leading_space else "") + body
-        if self.committed[-1].isspace():
-            return body
-        return " " + body
+    def _format(self, raw: str, *, final: bool = True) -> str:
+        return self._render(raw, final=final)[0]
+
+    def _render(self, raw: str, *, final: bool = True) -> tuple[str, bool]:
+        return render_dictation(raw, self.committed, final=final,
+                                leading_space=self.leading_space and not self.committed,
+                                right_glue=self._right_glue)
 
     def stable(self) -> str:
-        return self.committed + self._format(self.utterance)
+        return self.committed + self._format(self.utterance, final=False)
 
     def full(self) -> str:
         return self.committed + self._format(self.utterance + self.tentative)

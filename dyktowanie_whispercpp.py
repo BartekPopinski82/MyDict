@@ -246,10 +246,14 @@ class WhisperServer:
             command += ["--device", str(device)]
         flags = 0x08000000 if IS_WINDOWS else 0   # CREATE_NO_WINDOW
         log.info("Start whisper.cpp: %s", " ".join(command[1:]))
+        environment = dict(os.environ)
+        # Nakładki gier i nagrywarek (Steam, OBS, Epic, GOG…) wpinają się w każdy proces Vulkan
+        # jako „warstwy niejawne” i potrafią uniemożliwić wykrycie kart. Silnik ich nie potrzebuje.
+        environment.setdefault("VK_LOADER_LAYERS_DISABLE", "~implicit~")
         with open(self._log_path, "wb") as output:
             self.process = subprocess.Popen(
                 command, cwd=str(executable.parent), stdin=subprocess.DEVNULL,
-                stdout=output, stderr=subprocess.STDOUT, creationflags=flags,
+                stdout=output, stderr=subprocess.STDOUT, creationflags=flags, env=environment,
             )
         _kill_with_parent(self.process)
         deadline = time.monotonic() + START_TIMEOUT
@@ -395,6 +399,37 @@ def words_from_segment(segment: dict) -> list[Word]:
     return [word for word in words if word.text.strip()]
 
 
+def _key(word: Word) -> str:
+    return re.sub(r"[^\w]+", "", word.text, flags=re.UNICODE).casefold()
+
+
+def drop_repetitions(words: list[Word], seconds: float) -> list[Word]:
+    """Usuwa powtórzenia dopisane przez model na końcu przebiegu.
+
+    Przy skróconym kontekście dźwięku model (zwłaszcza Turbo) potrafi po ostatnim
+    słowie zacząć zdanie od nowa. Takie słowa nie mają pokrycia w dźwięku, więc
+    wyrównanie DTW upycha je wszystkie w ostatniej chwili nagrania — po tym je
+    rozpoznajemy. Druga reguła łapie powtórkę, która dostała „normalne” czasy:
+    ciąg co najmniej trzech słów powtórzony bezpośrednio po sobie.
+    """
+    if len(words) < 2:
+        return words
+    # 1) stos słów o tym samym czasie na samym końcu dźwięku
+    last = words[-1].end
+    pile = 0
+    while pile < len(words) and abs(words[-1 - pile].end - last) < 0.011:
+        pile += 1
+    if pile >= 2 and last >= seconds - 0.25:
+        words = words[:-pile]
+    # 2) bezpośrednio powtórzony ciąg słów (najdłuższy możliwy, min. 3)
+    keys = [_key(word) for word in words]
+    for size in range(len(words) // 2, 2, -1):
+        for start in range(0, len(words) - 2 * size + 1):
+            if keys[start:start + size] == keys[start + size:start + 2 * size] and all(keys[start:start + size]):
+                return words[:start + size]
+    return words
+
+
 def compression_ratio(text: str) -> float:
     raw = text.encode("utf-8")
     return len(raw) / len(zlib.compress(raw)) if raw else 0.0
@@ -448,6 +483,10 @@ class WhisperCppTranscriber:
                 log.debug("Pominięto segment: %r", text)
                 continue
             words.extend(word for word in words_from_segment(segment) if word.start <= seconds + 0.5)
+        found = len(words)
+        words = drop_repetitions(words, seconds)
+        if len(words) != found:
+            log.debug("Odcięto powtórzenie: %d → %d słów", found, len(words))
         info = self.info
         self.last_stats = {
             "model": info.name if info else "",
@@ -492,8 +531,9 @@ def start_server(model: Path, status=lambda text: None, key: str = "") -> Whispe
     server = WhisperServer()
     status("Uruchamianie silnika rozpoznawania…")
     dtw = DTW_PRESETS.get(key, "")
-    server.start(model, dtw=dtw)
-    better = pick_device(server.info) if server.info.backend == "vulkan" else None
+    forced = os.environ.get("MYDICT_VULKAN_DEVICE", "")      # diagnostyka: numer karty wybrany ręcznie
+    server.start(model, dtw=dtw, device=int(forced) if forced.isdigit() else None)
+    better = pick_device(server.info) if server.info.backend == "vulkan" and not forced else None
     if better is not None:
         log.info("Przełączam whisper.cpp na kartę dedykowaną (urządzenie %d)", better)
         server.start(model, device=better, dtw=dtw)

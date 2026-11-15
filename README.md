@@ -39,14 +39,18 @@ Instalator rozpoznaje sprzęt i **w trakcie instalacji** pobiera wszystko, czego
 
 | Karta graficzna | Co się pobiera | Jak działa rozpoznawanie |
 |---|---|---|
-| **NVIDIA** (GeForce, RTX, GTX, Quadro) | biblioteki NVIDIA (ok. 1 GB) + model Turbo (1,6 GB) | na karcie — szybko |
-| NVIDIA z mniej niż 2,5 GB pamięci | biblioteki NVIDIA + model Lekki (0,5 GB) | na karcie |
-| **AMD, Intel** albo brak karty | model Lekki (0,5 GB) | na procesorze |
-| **Mac** (Apple Silicon) | model Lekki — przy pierwszym uruchomieniu | na procesorze |
+| **NVIDIA** (GeForce, RTX, GTX, Quadro) | biblioteki NVIDIA (ok. 1 GB) + model Turbo (1,6 GB) | na karcie, przez CUDA |
+| NVIDIA z mniej niż 2,5 GB pamięci | biblioteki NVIDIA + model Lekki (0,5 GB) | na karcie, przez CUDA |
+| **AMD / Intel — karta dedykowana** (Radeon RX, Arc) | model Turbo (0,6 GB) | na karcie, przez Vulkan |
+| **AMD / Intel — karta zintegrowana** | model Lekki (0,2 GB) | na karcie, przez Vulkan |
+| **Mac** (Apple Silicon) | model Turbo (0,6 GB) — przy pierwszym uruchomieniu | na karcie, przez Metal |
+| brak karty albo karta bez Vulkan | model Lekki (0,5 GB) | na procesorze |
 
-Karty AMD i Intel są rozpoznawane, ale silnik rozpoznawania mowy potrafi liczyć tylko na kartach
-NVIDIA, dlatego dostają lżejszy model. Wykryty sprzęt program pokazuje w ustawieniach pod listą modeli.
-Gdy pobieranie zostanie pominięte albo zabraknie internetu, program dokończy je sam przy uruchomieniu.
+Program ma dwa silniki rozpoznawania mowy i sam wybiera właściwy: **faster-whisper** dla kart NVIDIA
+(CUDA) oraz **whisper.cpp** dla kart AMD i Intel (Vulkan) i dla Maców (Metal). Wykryty sprzęt program
+pokazuje w ustawieniach pod listą modeli; tam też można ręcznie przełączyć silnik albo wymusić procesor.
+Gdy karta nie obsłuży przyspieszenia, program sam przechodzi na procesor. Gdy pobieranie zostanie
+pominięte albo zabraknie internetu, program dokończy je przy uruchomieniu.
 
 ## Jak dyktować
 
@@ -64,6 +68,70 @@ modyfikatorów (F8, F9).
 Przycisk klawiatury na pasku wstrzymuje wpisywanie — tekst zostaje wtedy tylko w podglądzie.
 
 ![Pływający pasek](docs/zrzuty/pasek-light.png)
+
+## Dyktowanie znaków i formatowania
+
+Komendy działają automatycznie, zarówno z lokalnym Whisperem, jak i z modelami
+w chmurze. Mów nazwę znaku w środku zdania. Program zamienia ją na znak przed
+wyświetleniem i wpisaniem tekstu do aktywnego okna.
+
+| Powiedz | Program wpisze |
+|---|---|
+| kropka, przecinek, dwukropek, średnik | `.` `,` `:` `;` |
+| pytajnik / znak zapytania, wykrzyknik | `?` `!` |
+| wielokropek / trzy kropki | `…` |
+| myślnik / minus | `-` z odstępami pomiędzy słowami |
+| pauza | `—` z odstępami |
+| łącznik | `-` bez odstępów: `biało-czerwony` |
+| nowa linia / nowy wiersz | przejście do kolejnego wiersza |
+| nowy akapit | dwa przejścia do nowego wiersza |
+| otwórz nawias / nawias otwierający | `(` |
+| zamknij nawias / nawias zamykający | `)` |
+| otwórz / zamknij nawias kwadratowy | `[` `]` |
+| otwórz / zamknij nawias klamrowy | `{` `}` |
+| otwórz / zamknij cudzysłów | `„` `”` |
+| apostrof | `'` bez odstępów |
+| ukośnik / ukośnik wsteczny | `/` `\` bez odstępów |
+| podkreślnik, małpa / znak małpy | `_` `@` bez odstępów |
+| procent, promil | `%` `‰` bez odstępu z lewej |
+| plus, znak równości / równa się, gwiazdka, ampersand | `+` `=` `*` `&` z odstępami |
+| hasztag / kratka | `#` przyklejony do następnego słowa |
+
+Przykład — powiedz:
+
+> Zakupy dwukropek nowa linia myślnik mleko nowa linia myślnik chleb
+
+Wynik:
+
+```text
+Zakupy:
+- mleko
+- chleb
+```
+
+**Żeby zapisać nazwę znaku jako słowo**, powiedz przed komendą **„dosłownie”**:
+„dosłownie dwukropek” daje `dwukropek`, a „dosłownie nowa linia” daje `nowa linia`.
+Dotyczy to też zwykłych słów występujących na liście komend, takich jak „procent”,
+„plus”, „minus”, „małpa” czy „pauza”. Inne wyrazy nie są zamieniane, np. „kropkami”.
+
+Komendę z kilku słów wypowiadaj bez długiej pauzy w jej środku. Podczas dyktowania
+na żywo program przytrzymuje możliwy początek komendy do czasu rozpoznania reszty;
+nie wpisuje do innej aplikacji słowa „nowa”, żeby później je usuwać. Po pauzie lub
+zatrzymaniu dyktowania niedokończona komenda pozostaje zwykłym tekstem.
+Wielkość liter i brak polskich znaków w nazwie komendy nie mają znaczenia.
+
+Program usuwa bezpośrednio po nazwie komendy znaki interpunkcyjne dopisane przez
+model, np. „dwukropek.” daje jeden `:`, a „kropka.” daje jedną `.`. Zamiana działa
+na tekście rozpoznanym przez model: gdy Whisper pominie lub przekręci nazwę komendy,
+może ona nie zadziałać. Zwykła kropka oddziela zdania i dodaje odstęp przed następnym
+słowem; ta funkcja nie służy do składania adresów e-mail ani adresów stron.
+
+**Nowa linia i nowy akapit wysyłają klawisz Enter do aktywnej aplikacji.**
+W komunikatorze Enter może wysłać wiadomość — używaj tych komend w polach, w których
+Enter tworzy nowy wiersz.
+
+Po aktualizacji źródeł uruchom ponownie program przez **Uruchom ze zrodel.bat**.
+Gotowa aplikacja `.exe` wymaga nowej kompilacji; sama zmiana plików `.py` jej nie aktualizuje.
 
 ## Aktualizacje
 
@@ -133,7 +201,7 @@ dekodera.
 - Windows nie pozwala wpisywać do programów uruchomionych **jako administrator**, jeśli
   MyDict nie działa tak samo — pasek pokaże ostrzeżenie.
 - macOS: program zna nazwę aktywnej aplikacji, ale nie tytuł okna; dźwięk komputera (loopback)
-  i przyspieszenie GPU nie są dostępne — model liczy procesor.
+  nie jest dostępny.
 - Interpunkcję i wielkie litery dodaje model.
 
 ## Dla programistów
@@ -144,6 +212,7 @@ python -m venv .venv
 pip install -r requirements-build.txt
 python MyDict.py         # uruchomienie ze źródeł
 python -m pytest tests            # testy
+python packaging/build_whispercpp.py   # drugi silnik (wymaga CMake; Windows: Visual Studio C++ i Vulkan SDK)
 python packaging/build.py         # aplikacja + instalator dla bieżącego systemu
 ```
 
@@ -155,7 +224,9 @@ python packaging/build.py         # aplikacja + instalator dla bieżącego syste
 | `dyktowanie_windows.py`, `dyktowanie_macos.py` | aktywne okno, wpisywanie, globalny skrót; wybór w `dyktowanie_platforma.py` |
 | `dyktowanie_ui.py`, `dyktowanie_api_ui.py`, `dyktowanie_motyw.py` | interfejs i motywy |
 | `dyktowanie_aktualizacje.py`, `dyktowanie_pobieranie.py` | aktualizacje z GitHuba, pobieranie z kontrolą sumy |
-| `dyktowanie_gpu_pakiet.py` | biblioteki NVIDIA pobierane na żądanie |
+| `dyktowanie_whispercpp.py` | drugi silnik: whisper.cpp jako lokalny proces (Vulkan / Metal) |
+| `dyktowanie_sprzet.py`, `dyktowanie_przygotowanie.py` | rozpoznanie karty, dobór silnika i modelu, pobieranie składników przy instalacji |
+| `dyktowanie_gpu_pakiet.py` | biblioteki NVIDIA pobierane przy instalacji |
 | `dyktowanie_app.py` | wersja, nazwy, katalogi |
 | `packaging/` | PyInstaller, Inno Setup, skrypty wydań |
 

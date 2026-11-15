@@ -164,9 +164,11 @@ def test_model_download_uses_checksum_from_repository(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("cuda,cards,engine,backend,model", [
     (1, ["NVIDIA GeForce RTX 3060"], True, "cuda", "turbo"),
-    (0, ["AMD Radeon RX 6600"], True, "vulkan", "small"),
+    (0, ["AMD Radeon RX 6600"], True, "vulkan", "turbo"),           # karta dedykowana
+    (0, ["AMD Radeon(TM) Graphics"], True, "vulkan", "small"),      # zintegrowana (pomiar: Turbo nie nadąża)
+    (0, ["Intel(R) Arc(TM) A770 Graphics"], True, "vulkan", "turbo"),
     (0, ["Intel(R) UHD Graphics 630"], True, "vulkan", "small"),
-    (0, ["NVIDIA GeForce GTX 1050"], True, "vulkan", "small"),      # NVIDIA bez działającego CUDA
+    (0, ["NVIDIA GeForce GTX 1050"], True, "vulkan", "turbo"),      # NVIDIA bez działającego CUDA
     (0, ["Apple Silicon"], True, "metal", "turbo"),
     (0, ["AMD Radeon RX 6600"], False, "cpu", "small"),             # kopia programu bez drugiego silnika
     (0, [], True, "cpu", "small"),
@@ -177,3 +179,28 @@ def test_engine_choice(cuda, cards, engine, backend, model):
     assert hardware.recommended_model == model
     if backend in ("vulkan", "metal"):
         assert "karta" in hardware.summary
+
+
+# -- powtórzenia dopisywane przez model ------------------------------------------------
+
+
+def _words(text, times):
+    return [wc.Word(0.0, t, " " + w) for w, t in zip(text.split(), times)]
+
+
+def test_repeated_sentence_piled_at_the_end_is_dropped():
+    sentence = "Sprawdzamy, czy mowa działa."
+    words = _words(sentence + " " + sentence, [1.1, 1.3, 2.0, 5.4, 6.06, 6.06, 6.06, 6.06])
+    assert "".join(w.text for w in wc.drop_repetitions(words, 6.1)) == " Sprawdzamy, czy mowa działa."
+
+
+def test_repeated_run_with_normal_times_is_cut():
+    words = _words("raz dwa trzy raz dwa trzy cztery", [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5])
+    assert [w.text for w in wc.drop_repetitions(words, 10.0)] == [" raz", " dwa", " trzy"]
+
+
+def test_normal_speech_is_left_alone():
+    words = _words("to jest to jest dobre zdanie", [0.3, 0.6, 0.9, 1.2, 1.6, 2.0])     # powtórka 2 słów to zwykła mowa
+    assert wc.drop_repetitions(words, 2.05) == words
+    single = _words("jedno słowo", [0.5, 2.0])
+    assert wc.drop_repetitions(single, 2.0) == single                                  # ostatnie słowo przy końcu dźwięku

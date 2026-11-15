@@ -51,6 +51,17 @@ pip install -r requirements-build.txt
 python packaging/build.py
 ```
 
+Drugi silnik (whisper.cpp) buduje `python packaging/build_whispercpp.py` — wynik trafia do folderu
+`whispercpp/` (poza repozytorium), skąd zabiera go `build.py`. Wymaga CMake; na Windows także
+Visual Studio 2022 (C++) i Vulkan SDK ze zmienną `VULKAN_SDK`. Wersja whisper.cpp jest przypięta
+w skrypcie — po jej zmianie trzeba ponownie sprawdzić dyktowanie (czasy słów, powtórzenia).
+
+Przełączniki diagnostyczne (zmienne środowiskowe) do testów na jednym komputerze:
+`MYDICT_DATA` — osobny katalog danych i ustawień (niezależna kopia programu),
+`MYDICT_BEZ_CUDA=1` — zachowuj się jak komputer bez karty NVIDIA,
+`MYDICT_VULKAN_DEVICE=N` — użyj karty Vulkan o numerze N,
+`MYDICT_SILNIK=whispercpp` — wymuś drugi silnik.
+
 Windows wymaga [Inno Setup 6](https://jrsoftware.org/isinfo.php) (polecenie `iscc`); bez niego
 powstaje sama aplikacja w `dist/MyDict/`. Ikony z logo: `python packaging/make_icons.py`.
 Zrzuty ekranu do README: `python packaging/zrzuty.py`.

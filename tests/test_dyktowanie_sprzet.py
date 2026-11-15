@@ -44,7 +44,7 @@ def test_small_nvidia_card_gets_light_model():
     ([], "none"),
 ])
 def test_other_cards_are_recognised_but_use_processor(cards, vendor):
-    hardware = sprzet.detect(0, cards)
+    hardware = sprzet.detect(0, cards, second_engine=False)
     assert hardware.vendor == vendor
     assert not hardware.accelerated
     assert hardware.recommended_model == sprzet.MODEL_CPU
@@ -52,7 +52,7 @@ def test_other_cards_are_recognised_but_use_processor(cards, vendor):
 
 
 def test_nvidia_card_without_working_driver_is_explained():
-    hardware = sprzet.detect(0, ["NVIDIA GeForce GTX 1050"])
+    hardware = sprzet.detect(0, ["NVIDIA GeForce GTX 1050"], second_engine=False)
     assert hardware.vendor == "nvidia" and not hardware.accelerated
     assert "sterownik" in hardware.summary
 

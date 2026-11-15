@@ -58,6 +58,8 @@ def selftest(app: Path) -> None:
     """Zbudowany program musi sam potwierdzić, że ma komplet bibliotek i zasobów."""
     data = tempfile.mkdtemp(prefix="mydict-selftest-")
     env = dict(os.environ, MYDICT_DATA=data, QT_QPA_PLATFORM="offscreen")
+    if (ROOT / "whispercpp").is_dir():
+        env["MYDICT_SELFTEST_SILNIK"] = "1"   # zbudowana aplikacja musi zawierać działający drugi silnik
     result = subprocess.run([str(executable(app)), "--selftest"], env=env, timeout=300)
     report = Path(data) / "selftest.txt"
     text = report.read_text(encoding="utf-8").strip() if report.is_file() else "(brak raportu)"

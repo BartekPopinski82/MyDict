@@ -126,6 +126,21 @@ def selftest() -> int:
             problems.append(f"wykrywanie mowy: {vad} zamiast SileroVAD (brak modelu VAD w pakiecie)")
         foreground_window()
         typing_permission_granted()
+        if os.environ.get("MYDICT_SELFTEST_SILNIK"):
+            # Wydanie musi zawierać drugi silnik (whisper.cpp) i musi on dać się uruchomić.
+            import subprocess
+
+            import dyktowanie_whispercpp as whispercpp
+
+            if not whispercpp.available():
+                problems.append("brak drugiego silnika (whispercpp/whisper-server)")
+            else:
+                result = subprocess.run(
+                    [str(whispercpp.server_executable()), "--help"], capture_output=True, timeout=60,
+                    creationflags=0x08000000 if sys.platform.startswith("win") else 0,
+                )
+                if b"--model" not in result.stdout + result.stderr:
+                    problems.append(f"drugi silnik nie startuje (kod {result.returncode})")
     except Exception as exc:
         problems.append(f"test składników: {exc!r}")
     report = "\n".join(problems) if problems else f"OK {APP_NAME} {__version__}"

@@ -54,6 +54,7 @@ import dyktowanie_aktualizacje as updates
 import dyktowanie_gpu_pakiet as gpu_pack
 import dyktowanie_motyw as motyw
 import dyktowanie_sprzet as sprzet
+import dyktowanie_whispercpp as whispercpp
 from dyktowanie_app import (
     APP_ID,
     APP_NAME,
@@ -79,6 +80,7 @@ from dyktowanie_asr import (
 from dyktowanie_api import CLOUD_MODELS, is_cloud_key
 from dyktowanie_api_ui import ApiKeysDialog, ApiStore, CustomModelDialog
 from dyktowanie_core import SessionText, display_tail, level_to_unit
+from dyktowanie_pomoc import HelpDialog
 from dyktowanie_latencja import tracker as latency
 from dyktowanie_platforma import (
     DEFAULT_HOTKEY,
@@ -945,6 +947,11 @@ class MainWindow(QMainWindow):
         self.status_pill = QLabel("Przygotowanie…")
         self.status_pill.setProperty("pill", "busy")
         header.addWidget(self.status_pill, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.help_button = QPushButton("Pomoc")
+        self.help_button.setToolTip("Lista komend głosowych i znaków specjalnych")
+        self.help_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.help_button.clicked.connect(self._show_help)
+        header.addWidget(self.help_button, 0, Qt.AlignmentFlag.AlignVCenter)
         outer.addLayout(header)
 
         # Banery: aktualizacja, przyspieszenie GPU, zgoda systemu na wpisywanie.
@@ -1071,6 +1078,12 @@ class MainWindow(QMainWindow):
         form.addWidget(self.model_combo)
         self.device_combo = QComboBox()
         self.device_combo.addItem("Karta graficzna, jeśli dostępna", "auto")
+        if whispercpp.available():
+            self.device_combo.addItem(
+                f"Karta graficzna — silnik {whispercpp.BACKEND_LABEL[whispercpp.BACKEND]}", "gpu2")
+            self.device_combo.setItemData(
+                1, "Drugi silnik rozpoznawania (whisper.cpp). Działa na kartach AMD, Intel i NVIDIA.",
+                Qt.ItemDataRole.ToolTipRole)
         self.device_combo.addItem("Tylko procesor (CPU)", "cpu")
         form.addWidget(self.device_combo)
         self.hardware_hint = helper_label(self.hardware.summary)
@@ -1199,6 +1212,13 @@ class MainWindow(QMainWindow):
             footer.addWidget(button)
         outer.addLayout(footer)
         self.setCentralWidget(root)
+
+    def _show_help(self):
+        if getattr(self, "_help_dialog", None) is None:
+            self._help_dialog = HelpDialog(self)
+        self._help_dialog.show()
+        self._help_dialog.raise_()
+        self._help_dialog.activateWindow()
 
     def _refresh_icons(self):
         """Ikony mają kolor wpisany w obrazek — po zmianie motywu rysujemy je od nowa."""
@@ -2041,6 +2061,8 @@ def run(argv=None) -> int:
     from PySide6.QtCore import QLockFile, QStandardPaths
 
     lock_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.TempLocation)
+    if os.environ.get("MYDICT_DATA"):
+        lock_dir = str(data_dir())   # osobny katalog danych = osobna, niezależna kopia programu (testy)
     lock = QLockFile(str(Path(lock_dir) / "mydict.lock"))
     lock.setStaleLockTime(0)
     # Po aktualizacji nowa wersja startuje, zanim stara zdąży się zamknąć — chwilę czekamy.

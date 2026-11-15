@@ -11,6 +11,7 @@ Ten moduł ustala, który silnik i który model pasują do danego komputera.
 from __future__ import annotations
 
 import logging
+import os
 import platform
 import sys
 from dataclasses import dataclass
@@ -45,6 +46,16 @@ def vendor_of(name: str) -> str:
     if "apple" in text:
         return "apple"
     return "other"
+
+
+def is_integrated(name: str) -> bool:
+    """Karta zintegrowana z procesorem (wolniejsza, pamięć wspólna) — po nazwie."""
+    text = name.casefold()
+    if any(mark in text for mark in ("rtx", "gtx", "geforce", "quadro", " rx ", "radeon rx", "radeon pro", "arc(", "arc ")):
+        return False
+    return any(mark in text for mark in (
+        "uhd graphics", "hd graphics", "iris", "radeon(tm) graphics", "radeon graphics", "vega", "intel(r) graphics",
+    ))
 
 
 def _windows_cards() -> list[str]:
@@ -169,7 +180,9 @@ class Hardware:
             return MODEL_FAST_GPU
         if self.backend == "metal":
             return MODEL_FAST_GPU      # układy Apple mają szybką kartę i wspólną, dużą pamięć
-        return MODEL_CPU               # Vulkan na kartach zintegrowanych i procesor: model lekki
+        if self.backend == "vulkan" and self.card and not is_integrated(self.card) and self.vendor != "other":
+            return MODEL_FAST_GPU      # karta dedykowana AMD / Intel Arc / NVIDIA przez Vulkan
+        return MODEL_CPU               # karty zintegrowane i procesor: model lekki (pomiar: Turbo nie nadąża)
 
     @property
     def summary(self) -> str:
@@ -200,6 +213,10 @@ def detect(cuda_devices: int | None = None, cards: list[str] | None = None,
     """Rozpoznaje sprzęt. ``cuda_devices`` — liczba kart widzianych przez CTranslate2
     (None = sprawdź teraz); parametry pozwalają też podać dane w testach."""
     cards = graphics_cards() if cards is None else cards
+    if cuda_devices is None and os.environ.get("MYDICT_BEZ_CUDA"):
+        # Diagnostyka: udawaj komputer bez karty NVIDIA (test ścieżki AMD / Intel na jednej maszynie).
+        cuda_devices = 0
+        cards = [name for name in cards if vendor_of(name) != "nvidia"]
     if cuda_devices is None:
         try:
             import ctranslate2

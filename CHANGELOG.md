@@ -13,7 +13,8 @@ Pythona ani folderu BAPO-transcript.
 - Obsługa macOS: wpisywanie tekstu do aktywnej aplikacji, globalny skrót, klucze API w pęku kluczy.
 - Instalator rozpoznaje kartę graficzną i sam pobiera potrzebne składniki (biblioteki NVIDIA, model
   mowy dobrany do sprzętu) — po instalacji program jest od razu gotowy.
-- Karty AMD i Intel są rozpoznawane; dostają lżejszy model liczony na procesorze.
+- Drugi silnik rozpoznawania (whisper.cpp): karty AMD i Intel liczą przez Vulkan, a Mac przez Metal —
+  przyspieszenie nie wymaga już karty NVIDIA.
 - Nowy wygląd: motyw jasny i ciemny (zgodny z systemem albo wybrany ręcznie), większa czytelność,
   ustawienia podzielone na sekcje, nowa ikona.
 

@@ -1623,8 +1623,19 @@ class MainWindow(QMainWindow):
             self.gpu_later.setText("Nie teraz")
         self.gpu_banner.setVisible(wanted)
         # Komputer bez karty NVIDIA: podpowiadamy, jak uzyskać dobrą szybkość.
+        info = self.model_info
+        on_cpu = info is not None and info.device == "cpu"
+        if on_cpu and self.hardware.backend in ("vulkan", "metal"):
+            # Karta jest, ale silnik nie zdołał jej użyć (sterownik, brak obsługi Vulkan).
+            hint = (f"Karta {self.hardware.card} nie obsłużyła przyspieszenia — rozpoznawanie liczy procesor. "
+                    "Zaktualizuj sterownik karty graficznej.")
+        else:
+            hint = self.hardware.summary
+        self.hardware_hint.setText(hint)
+        self.cpu_banner.set_message("Rozpoznawanie mowy liczy procesor", hint)
         self.cpu_banner.setVisible(
-            local and state == "none" and not self.settings.value("cpu_banner_dismissed", False, type=bool)
+            local and on_cpu and state != "missing"
+            and not self.settings.value("cpu_banner_dismissed", False, type=bool)
         )
 
     def _dismiss_cpu_banner(self):

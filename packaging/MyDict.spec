@@ -28,6 +28,14 @@ datas = [
 ]
 datas += collect_data_files("faster_whisper")        # model wykrywania mowy (Silero VAD)
 binaries = collect_dynamic_libs("ctranslate2")
+# Drugi silnik (whisper.cpp z Vulkan / Metal) — budowany przez packaging/build_whispercpp.py.
+whispercpp = ROOT / "whispercpp"
+if whispercpp.is_dir():
+    for item in whispercpp.iterdir():
+        if item.suffix.lower() in (".txt", ".md"):
+            datas.append((str(item), "whispercpp"))
+        elif item.is_file():
+            binaries.append((str(item), "whispercpp"))
 hiddenimports = collect_submodules("websockets")
 if IS_MAC:
     hiddenimports += collect_submodules("keyring.backends")

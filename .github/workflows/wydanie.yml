@@ -51,8 +51,27 @@ jobs:
             choco install innosetup --no-progress -y
           }
 
+      - name: Pamięć podręczna drugiego silnika (whisper.cpp)
+        id: whispercpp
+        uses: actions/cache@v4
+        with:
+          path: whispercpp
+          key: whispercpp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packaging/build_whispercpp.py') }}
+
+      - name: Vulkan SDK
+        if: runner.os == 'Windows' && steps.whispercpp.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          choco install vulkan-sdk --no-progress -y
+          $sdk = Get-ChildItem C:\VulkanSDK -Directory | Sort-Object Name | Select-Object -Last 1
+          "VULKAN_SDK=$($sdk.FullName)" >> $env:GITHUB_ENV
+
+      - name: Drugi silnik — whisper.cpp (Vulkan na Windows, Metal na macOS)
+        if: steps.whispercpp.outputs.cache-hit != 'true'
+        run: python packaging/build_whispercpp.py
+
       - name: Budowanie i autotest aplikacji
-        run: python packaging/build.py
+        run: python packaging/build.py --require-whispercpp
 
       # Brak instalatora = brak plików = błąd (if-no-files-found), więc wydanie nie wyjdzie niekompletne.
       - uses: actions/upload-artifact@v4

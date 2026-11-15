@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 import dyktowanie_gpu_pakiet as gpu_pack
 import dyktowanie_motyw as motyw
 import dyktowanie_sprzet as sprzet
+import dyktowanie_whispercpp as whispercpp
 from dyktowanie_app import APP_NAME
 from dyktowanie_asr import MODELS, gpu_acceleration_state, reset_gpu_libraries
 from dyktowanie_pobieranie import Cancelled
@@ -151,7 +152,13 @@ def pending_steps(settings, hardware: sprzet.Hardware | None = None) -> list[tup
     key = chosen_model(settings, hardware)
     saved = str(settings.value("model", "") or "") if settings is not None else ""
     cloud = saved.startswith(("api:", "custom:"))
-    if not cloud and not model_cached(key):
+    if cloud:
+        return steps
+    if hardware.backend in ("vulkan", "metal"):
+        # Drugi silnik (whisper.cpp) ma własny format modeli.
+        if not whispercpp.model_cached(key):
+            steps.append((f"ggml:{key}", f"Model rozpoznawania mowy ({whispercpp.MODELS[key][1]})"))
+    elif not model_cached(key):
         steps.append((f"model:{key}", f"Model rozpoznawania mowy ({MODELS[key][2]})"))
     return steps
 
@@ -249,6 +256,9 @@ class SetupWindow(QDialog):
         self.status.setText("Łączenie z serwerem…")
         if kind == "gpu":
             self.task.start(lambda progress, cancel: gpu_pack.install(progress, cancel))
+        elif kind.startswith("ggml:"):
+            key = kind.split(":", 1)[1]
+            self.task.start(lambda progress, cancel: whispercpp.download_model(key, progress, cancel))
         else:
             key = kind.split(":", 1)[1]
             self.task.start(lambda progress, cancel: download_model(key, progress, cancel))

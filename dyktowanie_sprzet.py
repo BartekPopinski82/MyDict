@@ -1,8 +1,11 @@
 """Rozpoznanie sprzętu: jaka karta graficzna jest w komputerze i co z tego wynika.
 
-Model Whisper (silnik CTranslate2) potrafi liczyć na karcie graficznej tylko przez
-NVIDIA CUDA. Karty AMD i Intel oraz układy Apple są rozpoznawane, ale rozpoznawanie
-mowy liczy wtedy procesor — dlatego program dobiera dla nich lżejszy model.
+Program ma dwa silniki rozpoznawania mowy:
+
+* faster-whisper (CTranslate2) — karty NVIDIA przez CUDA, a bez karty: procesor;
+* whisper.cpp — karty AMD i Intel przez Vulkan (Windows) oraz Mac przez Metal.
+
+Ten moduł ustala, który silnik i który model pasują do danego komputera.
 """
 
 from __future__ import annotations
@@ -137,8 +140,20 @@ def nvidia_vram_mb() -> int | None:
 class Hardware:
     cards: tuple          # nazwy wszystkich kart
     vendor: str           # najlepsza do rozpoznawania: nvidia / amd / intel / apple / other / none
-    accelerated: bool     # czy rozpoznawanie mowy może liczyć karta (tylko NVIDIA CUDA)
+    accelerated: bool     # czy działa NVIDIA CUDA (pierwszy silnik)
     vram_mb: int | None = None
+    second_engine: bool = False   # czy do programu dołączony jest whisper.cpp (Vulkan / Metal)
+
+    @property
+    def backend(self) -> str:
+        """Czym będzie liczone rozpoznawanie: cuda / vulkan / metal / cpu."""
+        if self.accelerated:
+            return "cuda"
+        if self.second_engine and self.vendor == "apple":
+            return "metal"
+        if self.second_engine and self.vendor in ("amd", "intel", "nvidia"):
+            return "vulkan"
+        return "cpu"
 
     @property
     def card(self) -> str:
@@ -152,7 +167,9 @@ class Hardware:
     def recommended_model(self) -> str:
         if self.accelerated and (self.vram_mb is None or self.vram_mb >= MIN_VRAM_MB_FOR_TURBO):
             return MODEL_FAST_GPU
-        return MODEL_CPU
+        if self.backend == "metal":
+            return MODEL_FAST_GPU      # układy Apple mają szybką kartę i wspólną, dużą pamięć
+        return MODEL_CPU               # Vulkan na kartach zintegrowanych i procesor: model lekki
 
     @property
     def summary(self) -> str:
@@ -160,6 +177,13 @@ class Hardware:
         if self.accelerated:
             memory = f", {self.vram_mb / 1024:.0f} GB" if self.vram_mb else ""
             return f"Wykryto kartę {self.card}{memory} — rozpoznawanie mowy liczy karta graficzna."
+        if self.backend == "metal":
+            return "Wykryto Apple Silicon — rozpoznawanie mowy liczy karta graficzna (Metal)."
+        if self.backend == "vulkan" and self.vendor == "nvidia":
+            return (f"Wykryto kartę {self.card}, ale jej sterownik nie udostępnia CUDA — "
+                    "rozpoznawanie liczy karta przez Vulkan. Aktualizacja sterownika NVIDIA przyspieszy pracę.")
+        if self.backend == "vulkan":
+            return f"Wykryto kartę {self.card} — rozpoznawanie mowy liczy karta graficzna (Vulkan)."
         if self.vendor == "nvidia":
             return (f"Wykryto kartę {self.card}, ale jej sterownik nie udostępnia CUDA — "
                     "rozpoznawanie liczy procesor. Zaktualizuj sterownik NVIDIA.")
@@ -172,7 +196,7 @@ class Hardware:
 
 
 def detect(cuda_devices: int | None = None, cards: list[str] | None = None,
-           vram_mb: int | None = None) -> Hardware:
+           vram_mb: int | None = None, second_engine: bool | None = None) -> Hardware:
     """Rozpoznaje sprzęt. ``cuda_devices`` — liczba kart widzianych przez CTranslate2
     (None = sprawdź teraz); parametry pozwalają też podać dane w testach."""
     cards = graphics_cards() if cards is None else cards
@@ -180,7 +204,7 @@ def detect(cuda_devices: int | None = None, cards: list[str] | None = None,
         try:
             import ctranslate2
 
-            cuda_devices = int(ctranslate2.get_cuda_device_count()) if IS_WINDOWS or not IS_MAC else 0
+            cuda_devices = 0 if IS_MAC else int(ctranslate2.get_cuda_device_count())
         except Exception:
             cuda_devices = 0
     vendors = [vendor_of(name) for name in cards]
@@ -191,6 +215,14 @@ def detect(cuda_devices: int | None = None, cards: list[str] | None = None,
     vendor = next((v for v in ("nvidia", "amd", "intel", "apple", "other") if v in vendors), "none")
     if accelerated and vram_mb is None:
         vram_mb = nvidia_vram_mb()
-    hardware = Hardware(tuple(cards), vendor, accelerated, vram_mb if accelerated else None)
-    log.info("Sprzęt: karty=%s, wybór=%s, CUDA=%s, VRAM=%s MB", list(cards), vendor, accelerated, hardware.vram_mb)
+    if second_engine is None:
+        try:
+            import dyktowanie_whispercpp
+
+            second_engine = dyktowanie_whispercpp.available()
+        except Exception:
+            second_engine = False
+    hardware = Hardware(tuple(cards), vendor, accelerated, vram_mb if accelerated else None, bool(second_engine))
+    log.info("Sprzęt: karty=%s, wybór=%s, liczy=%s, VRAM=%s MB",
+             list(cards), vendor, hardware.backend, hardware.vram_mb)
     return hardware

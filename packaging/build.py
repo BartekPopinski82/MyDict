@@ -124,9 +124,18 @@ def write_checksums(files: list[Path]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--no-installer", action="store_true", help="tylko aplikacja, bez instalatora")
+    parser.add_argument("--require-whispercpp", action="store_true",
+                        help="przerwij, gdy brakuje drugiego silnika (wydania publiczne)")
     args = parser.parse_args()
     ver = version()
     sys.stdout.write(f"Buduję {APP_NAME} {ver} ({sys.platform}, {platform.machine()})\n")
+    engine = ROOT / "whispercpp" / ("whisper-server.exe" if IS_WIN else "whisper-server")
+    if not engine.is_file():
+        message = ("Brak drugiego silnika (whispercpp/). Karty AMD/Intel i Mac będą liczyć na procesorze. "
+                   "Zbuduj go: python packaging/build_whispercpp.py")
+        if args.require_whispercpp:
+            raise SystemExit(message)
+        sys.stdout.write("UWAGA: " + message + "\n")
     app = build_app()
     selftest(app)
     packages: list[Path] = []

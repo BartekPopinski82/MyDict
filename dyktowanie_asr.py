@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 
 import dyktowanie_gpu_pakiet as gpu_pack
+import dyktowanie_whispercpp as whispercpp
 from dyktowanie_api import ApiError, Request, ResolvedModel, clean_text, encode_wav, transcribe
 from dyktowanie_app import config_file
 from dyktowanie_core import (
@@ -203,7 +204,7 @@ class ModelInfo:
     def label(self) -> str:
         if self.device == "api":
             return f"Chmura (API) · {self.name}"
-        device = "GPU (CUDA)" if self.device == "cuda" else "CPU"
+        device = {"cuda": "GPU (CUDA)", "vulkan": "GPU (Vulkan)", "metal": "GPU (Metal)"}.get(self.device, "CPU")
         return f"{device} · {self.name} · {self.compute_type}"
 
 
@@ -900,6 +901,7 @@ class DictationEngine:
         self.commands: queue.Queue = queue.Queue()
         self.microphone = Microphone(self.audio.put)
         self.model = None
+        self.server = None   # proces whisper.cpp (drugi silnik), gdy jest w użyciu
         self.model_info: ModelInfo | None = None
         self.streamer: LiveStreamer | None = None
         self.listening = False
@@ -956,6 +958,9 @@ class DictationEngine:
         self._thread.join(timeout=3)
         self._quit.set()
         self._stop_resources()
+        server, self.server = getattr(self, "server", None), None
+        if server is not None:
+            server.stop()
 
     @property
     def level(self) -> float:
@@ -1086,6 +1091,9 @@ class DictationEngine:
             except Exception:
                 log.debug("Zamykanie połączenia strumieniowego", exc_info=True)
         self.streamer = None
+        server, self.server = getattr(self, "server", None), None
+        if server is not None:
+            server.stop()
         if self.model is not None:
             self.model = None
             gc.collect()
@@ -1137,11 +1145,55 @@ class DictationEngine:
         log.info("Tryb chmurowy: %s (%s, %s), VAD: %s", cloud.label, cloud.kind, cloud.base_url, vad.name)
         self.callbacks.ready(info)
 
+    @staticmethod
+    def _wants_second_engine(device: str) -> bool:
+        """whisper.cpp (Vulkan / Metal) bierzemy wtedy, gdy nie ma działającego NVIDIA CUDA."""
+        if device == "cpu" or not whispercpp.available():
+            return False
+        if os.environ.get("MYDICT_SILNIK") == "whispercpp":
+            return True
+        cuda = IS_WINDOWS and cuda_device_count() > 0 and prepare_gpu_libraries()
+        return not cuda
+
+    def _load_whispercpp(self, key: str):
+        started = time.monotonic()
+        status = lambda text: self.callbacks.status(text, True)  # noqa: E731
+        if not whispercpp.model_cached(key):
+            size = whispercpp.MODELS.get(key, whispercpp.MODELS["small"])[1]
+            status(f"Pobieranie modelu (jednorazowo, ok. {size})…")
+            whispercpp.download_model(key)
+        server = whispercpp.start_server(whispercpp.model_path(key), status, key)
+        forced = os.environ.get("MYDICT_SILNIK") == "whispercpp"
+        if not server.info.gpu and not forced:
+            server.stop()
+            raise whispercpp.WhisperCppError("karta graficzna nie obsługuje przyspieszenia")
+        vad = make_vad()
+        name = MODELS.get(key, MODELS[DEFAULT_MODEL])[0]
+        backend = server.info.backend if server.info.gpu else "cpu"
+        info = ModelInfo(key, name, backend, server.info.device or "q5", vad.name)
+        self.server = server
+        self.model_info = info
+        self.streamer = LiveStreamer(
+            whispercpp.WhisperCppTranscriber(server, self.settings, info), vad, self.settings.stream
+        )
+        self.streamer.on_timing = latency.stream_event
+        latency.model = info.label
+        log.info("Model gotowy w %.1f s: %s (whisper.cpp), VAD: %s", time.monotonic() - started, info.label, vad.name)
+        self.callbacks.ready(info)
+
     def _load(self, key: str, device: str):
         self._release_model()
         self.settings.stream.live_passes = True
         self.settings.stream.max_buffer = StreamConfig.max_buffer
         self.callbacks.status("Przygotowanie modelu…", True)
+        if self._wants_second_engine(device):
+            try:
+                self._load_whispercpp(key)
+                return
+            except Exception as exc:
+                log.warning("whisper.cpp niedostępny (%s) — używam pierwszego silnika", exc, exc_info=True)
+                self._release_model()
+                self.settings.stream.live_passes = True
         try:
             started = time.monotonic()
             model, info = load_whisper(key, device, status=lambda text: self.callbacks.status(text, True))

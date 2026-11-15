@@ -1,0 +1,137 @@
+{
+  "_opis": "Dostawcy i modele API. Edytuj tutaj, nie w kodzie. 'params' trafiają do zapytania HTTP i do połączenia strumieniowego (model może mieć własne 'params', nadpisują dostawcy). 'stream': true włącza dyktowanie strumieniowe przez WebSocket (Deepgram) - wtedy działają 'streaming_params' (np. interim_results, endpointing; 'local_finalize_ms' = po tylu ms ciszy z mikrofonu program wysyła Finalize, 0 = wyłączone). Bez biblioteki websockets albo przy 'stream': false program wysyła wypowiedź zwykłym POST-em po pauzie, a 'streaming_params' są pomijane.",
+  "providers": {
+    "openai": {
+      "name": "OpenAI",
+      "kind": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "env_vars": [
+        "OPENAI_API_KEY"
+      ],
+      "key_url": "https://platform.openai.com/api-keys"
+    },
+    "groq": {
+      "name": "Groq",
+      "kind": "openai",
+      "base_url": "https://api.groq.com/openai/v1",
+      "env_vars": [
+        "GROQ_API_KEY"
+      ],
+      "key_url": "https://console.groq.com/keys"
+    },
+    "elevenlabs": {
+      "name": "ElevenLabs",
+      "kind": "elevenlabs",
+      "base_url": "https://api.elevenlabs.io/v1",
+      "env_vars": [
+        "ELEVENLABS_API_KEY",
+        "XI_API_KEY"
+      ],
+      "key_url": "https://elevenlabs.io/app/settings/api-keys"
+    },
+    "deepgram": {
+      "name": "Deepgram",
+      "kind": "deepgram",
+      "base_url": "https://api.eu.deepgram.com/v1",
+      "env_vars": [
+        "DEEPGRAM_API_KEY"
+      ],
+      "key_url": "https://console.deepgram.com/",
+      "extra_hosts": [
+        "api.deepgram.com"
+      ],
+      "endpoint_note": "EU: https://api.eu.deepgram.com/v1 · USA: https://api.deepgram.com/v1",
+      "params": {
+        "smart_format": "true",
+        "punctuate": "true"
+      },
+      "streaming_params": {
+        "interim_results": "true",
+        "endpointing": "200",
+        "local_finalize_ms": "400"
+      },
+      "stream": true
+    },
+    "assemblyai": {
+      "name": "AssemblyAI",
+      "kind": "assemblyai",
+      "base_url": "https://api.assemblyai.com/v2",
+      "env_vars": [
+        "ASSEMBLYAI_API_KEY"
+      ],
+      "key_url": "https://www.assemblyai.com/dashboard/api-keys"
+    }
+  },
+  "models": [
+    {
+      "key": "api:groq:whisper-large-v3-turbo",
+      "provider": "groq",
+      "model": "whisper-large-v3-turbo",
+      "label": "Groq · Whisper large-v3 turbo",
+      "note": "Bardzo szybki i tani — dobry wybór do dyktowania."
+    },
+    {
+      "key": "api:groq:whisper-large-v3",
+      "provider": "groq",
+      "model": "whisper-large-v3",
+      "label": "Groq · Whisper large-v3",
+      "note": "Najdokładniejszy Whisper, nadal bardzo szybki."
+    },
+    {
+      "key": "api:openai:gpt-4o-transcribe",
+      "provider": "openai",
+      "model": "gpt-4o-transcribe",
+      "label": "OpenAI · GPT-4o Transcribe",
+      "note": "Dokładny, dobra interpunkcja."
+    },
+    {
+      "key": "api:openai:gpt-4o-mini-transcribe",
+      "provider": "openai",
+      "model": "gpt-4o-mini-transcribe",
+      "label": "OpenAI · GPT-4o mini Transcribe",
+      "note": "Tańszy wariant OpenAI."
+    },
+    {
+      "key": "api:openai:gpt-transcribe",
+      "provider": "openai",
+      "model": "gpt-transcribe",
+      "label": "OpenAI · GPT Transcribe",
+      "note": "Najnowszy model OpenAI, obsługuje słownik."
+    },
+    {
+      "key": "api:openai:whisper-1",
+      "provider": "openai",
+      "model": "whisper-1",
+      "label": "OpenAI · Whisper",
+      "note": "Klasyczny Whisper w chmurze OpenAI."
+    },
+    {
+      "key": "api:elevenlabs:scribe_v2",
+      "provider": "elevenlabs",
+      "model": "scribe_v2",
+      "label": "ElevenLabs · Scribe v2",
+      "note": "Bardzo dobry polski, obsługuje słownik."
+    },
+    {
+      "key": "api:deepgram:nova-3",
+      "provider": "deepgram",
+      "model": "nova-3",
+      "label": "Deepgram · Nova-3",
+      "note": "Szybki, obsługuje słownik (keyterm)."
+    },
+    {
+      "key": "api:deepgram:nova-2",
+      "provider": "deepgram",
+      "model": "nova-2",
+      "label": "Deepgram · Nova-2",
+      "note": "Poprzednia generacja Deepgram."
+    },
+    {
+      "key": "api:assemblyai:universal-2",
+      "provider": "assemblyai",
+      "model": "universal-2",
+      "label": "AssemblyAI · Universal-2",
+      "note": "Działa przez kolejkę — tekst pojawia się z kilkusekundowym opóźnieniem."
+    }
+  ]
+}

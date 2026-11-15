@@ -1,0 +1,5 @@
+sounddevice>=0.4.6
+PyAudioWPatch>=0.2.12; sys_platform == "win32"
+nvidia-ml-py>=12.0
+psutil>=5.9
+websockets>=14

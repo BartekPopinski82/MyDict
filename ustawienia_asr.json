@@ -1,0 +1,4 @@
+{
+  "_opis": "Ustawienia dekodera Whisper. Zmiana działa po ponownym uruchomieniu programu. final_beam: 5 = dokładniej, 1 = szybciej (zakres 1-10).",
+  "final_beam": 5
+}

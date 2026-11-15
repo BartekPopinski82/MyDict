@@ -192,7 +192,7 @@ def report(title: str, meters: list[Meter], noise: dict[str, float] | None = Non
 
 
 def main():
-    say(f"BAPO-dyktowanie — test dźwięku, {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    say(f"MyDict — test dźwięku, {time.strftime('%Y-%m-%d %H:%M:%S')}")
     say(f"Python {platform.python_version()} · {platform.platform()}")
     try:
         import sounddevice as sd

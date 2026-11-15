@@ -95,6 +95,13 @@ def install(
     work.mkdir(parents=True, exist_ok=True)
     wheels = [_wheel(name, version, fetch) for name, version in PACKAGES]
     total = sum(int(item.get("size") or 0) for item in wheels)
+    # Paczki i rozpakowane biblioteki przez chwilę leżą obok siebie — potrzeba ok. 2,5× rozmiaru.
+    free = shutil.disk_usage(directory).free
+    if total and free < total * 2.5:
+        raise DownloadError(
+            f"Za mało miejsca na dysku: potrzeba ok. {total * 2.5 / 1024 ** 3:.1f} GB, "
+            f"wolne {free / 1024 ** 3:.1f} GB."
+        )
     finished = 0
     (directory / MARKER).unlink(missing_ok=True)
     for item in wheels:

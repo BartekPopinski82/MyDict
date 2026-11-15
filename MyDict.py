@@ -1,4 +1,4 @@
-"""Punkt startowy BAPO-dyktowanie — transkrypcja mowy na żywo do aktywnego okna."""
+"""Punkt startowy MyDict — transkrypcja mowy na żywo do aktywnego okna."""
 
 import logging
 import os

@@ -1,9 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 """Przepis PyInstallera: jedna definicja dla Windows i macOS.
 
-    pyinstaller packaging/BAPO-dyktowanie.spec --noconfirm
+    pyinstaller packaging/MyDict.spec --noconfirm
 
-Wynik: ``dist/BAPO-dyktowanie/`` (Windows) albo ``dist/BAPO-dyktowanie.app`` (macOS).
+Wynik: ``dist/MyDict/`` (Windows) albo ``dist/MyDict.app`` (macOS).
 Zwykle uruchamiany przez ``packaging/build.py``, który robi też instalator.
 """
 
@@ -15,8 +15,8 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 ROOT = Path(SPECPATH).parent  # noqa: F821 — SPECPATH podaje PyInstaller
-APP_NAME = "BAPO-dyktowanie"
-APP_ID = "pl.bapo.dyktowanie"
+APP_NAME = "MyDict"
+APP_ID = "pl.bapo.mydict"
 VERSION = re.search(r'__version__ = "([^"]+)"', (ROOT / "dyktowanie_app.py").read_text(encoding="utf-8")).group(1)
 IS_MAC = sys.platform == "darwin"
 IS_WIN = sys.platform.startswith("win")
@@ -33,7 +33,7 @@ if IS_MAC:
     hiddenimports += collect_submodules("keyring.backends")
 
 analysis = Analysis(  # noqa: F821
-    [str(ROOT / "BAPO_Dyktowanie.py")],
+    [str(ROOT / "MyDict.py")],
     pathex=[str(ROOT)],
     binaries=binaries,
     datas=datas,
@@ -96,9 +96,9 @@ if IS_MAC:
             "LSApplicationCategoryType": "public.app-category.productivity",
             "NSHighResolutionCapable": True,
             "NSMicrophoneUsageDescription":
-                "BAPO-dyktowanie słucha mikrofonu, aby zamieniać mowę na tekst.",
+                "MyDict słucha mikrofonu, aby zamieniać mowę na tekst.",
             "NSAppleEventsUsageDescription":
-                "BAPO-dyktowanie wpisuje podyktowany tekst do aktywnej aplikacji.",
+                "MyDict wpisuje podyktowany tekst do aktywnej aplikacji.",
             "NSHumanReadableCopyright": "BAPO",
         },
     )

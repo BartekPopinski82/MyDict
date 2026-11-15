@@ -725,7 +725,7 @@ class SystemAudio:
         if pyaudio is None:
             raise RuntimeError(
                 "Przechwytywanie dźwięku komputera wymaga biblioteki PyAudioWPatch.\n"
-                "Uruchom program przez „Uruchom BAPO-dyktowanie.bat” — doinstaluje ją."
+                "Zainstaluj program ponownie."
             )
         self.stop()
         pa = pyaudio.PyAudio()

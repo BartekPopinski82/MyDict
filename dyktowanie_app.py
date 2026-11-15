@@ -1,6 +1,6 @@
 """Tożsamość programu i jego katalogi — jedno miejsce dla wersji, nazw i ścieżek.
 
-Program działa w dwóch postaciach: ze źródeł (``python BAPO_Dyktowanie.py``) oraz
+Program działa w dwóch postaciach: ze źródeł (``python MyDict.py``) oraz
 jako zainstalowana aplikacja zbudowana PyInstallerem. Ten moduł ukrywa różnicę:
 reszta kodu pyta tylko o „plik zasobu” albo „katalog danych użytkownika”.
 """
@@ -12,13 +12,15 @@ import sys
 from pathlib import Path
 
 
-APP_NAME = "BAPO-dyktowanie"
-APP_ID = "pl.bapo.dyktowanie"
+APP_NAME = "MyDict"
+# Poprzednia nazwa programu — stąd przenosimy ustawienia przy pierwszym uruchomieniu.
+LEGACY_NAME = "BAPO-dyktowanie"
+APP_ID = "pl.bapo.mydict"
 ORGANIZATION = "BAPO"
 __version__ = "2.0.0"
 
 # Repozytorium GitHub, z którego program pobiera aktualizacje (wydania „Releases”).
-GITHUB_REPO = "BartekPopinski82/BAPO-dyktowanie"
+GITHUB_REPO = "BartekPopinski82/MyDict"
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -35,7 +37,7 @@ def resource_dir() -> Path:
 
 def data_dir() -> Path:
     """Katalog danych użytkownika: dziennik, pomiary, pobrane składniki."""
-    override = os.environ.get("BAPO_DYKTOWANIE_DATA")
+    override = os.environ.get("MYDICT_DATA")
     if override:
         path = Path(override)
     elif IS_WINDOWS:
@@ -50,7 +52,7 @@ def data_dir() -> Path:
 
 def log_dir() -> Path:
     """Katalog dzienników (na macOS tam, gdzie szuka ich aplikacja Konsola)."""
-    if IS_MAC and not os.environ.get("BAPO_DYKTOWANIE_DATA"):
+    if IS_MAC and not os.environ.get("MYDICT_DATA"):
         path = Path.home() / "Library" / "Logs" / APP_NAME
         path.mkdir(parents=True, exist_ok=True)
         return path

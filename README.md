@@ -1,4 +1,4 @@
-# BAPO-dyktowanie
+# MyDict
 
 Dyktowanie na żywo dla Windows i macOS. Program słucha mikrofonu, pokazuje transkrypcję w trakcie
 mówienia i wpisuje tekst tam, gdzie akurat piszesz — w Wordzie, przeglądarce (Gmail, Google Docs,
@@ -19,17 +19,17 @@ Pobierz najnowsze wydanie ze strony **[Releases](../../releases/latest)**.
 
 ### Windows 10 / 11
 
-1. Pobierz `BAPO-dyktowanie-<wersja>-Windows-Setup.exe` i uruchom.
+1. Pobierz `MyDict-<wersja>-Windows-Setup.exe` i uruchom.
 2. Instalator nie wymaga uprawnień administratora. Windows może pokazać ostrzeżenie SmartScreen
    („Nieznany wydawca”) — wybierz **Więcej informacji → Uruchom mimo to**.
 
 ### macOS 12 lub nowszy (Apple Silicon)
 
-1. Pobierz `BAPO-dyktowanie-<wersja>-macOS-arm64.dmg`, otwórz i przeciągnij aplikację do **Programy**.
+1. Pobierz `MyDict-<wersja>-macOS-arm64.dmg`, otwórz i przeciągnij aplikację do **Programy**.
 2. Pierwsze uruchomienie: kliknij aplikację prawym przyciskiem → **Otwórz** (aplikacja nie jest
    jeszcze notaryzowana przez Apple). Gdy system odmówi, wejdź w **Ustawienia systemowe →
    Prywatność i ochrona** i wybierz **Otwórz mimo to**.
-3. Zezwól na **Mikrofon**, a w banerze programu kliknij **Otwórz ustawienia** i włącz BAPO-dyktowanie
+3. Zezwól na **Mikrofon**, a w banerze programu kliknij **Otwórz ustawienia** i włącz MyDict
    na liście **Dostępność** — bez tej zgody macOS nie pozwala wpisywać tekstu do innych aplikacji.
 
 ### Pierwsze uruchomienie
@@ -104,8 +104,8 @@ komputer (WASAPI loopback). Przydatne do testów na nagraniu i do transkrypcji r
 
 | | Windows | macOS |
 |---|---|---|
-| Dziennik, pomiary | `%LOCALAPPDATA%\BAPO-dyktowanie` | `~/Library/Logs/BAPO-dyktowanie` |
-| Składniki, własna konfiguracja | `%LOCALAPPDATA%\BAPO-dyktowanie` | `~/Library/Application Support/BAPO-dyktowanie` |
+| Dziennik, pomiary | `%LOCALAPPDATA%\MyDict` | `~/Library/Logs/MyDict` |
+| Składniki, własna konfiguracja | `%LOCALAPPDATA%\MyDict` | `~/Library/Application Support/MyDict` |
 | Modele Whisper | `%USERPROFILE%\.cache\huggingface` | `~/.cache/huggingface` |
 
 Przycisk **Otwórz folder dziennika** na dole okna prowadzi wprost do dziennika `dyktowanie.log`.
@@ -115,7 +115,7 @@ dekodera.
 ## Ograniczenia
 
 - Windows nie pozwala wpisywać do programów uruchomionych **jako administrator**, jeśli
-  BAPO-dyktowanie nie działa tak samo — pasek pokaże ostrzeżenie.
+  MyDict nie działa tak samo — pasek pokaże ostrzeżenie.
 - macOS: program zna nazwę aktywnej aplikacji, ale nie tytuł okna; dźwięk komputera (loopback)
   i przyspieszenie GPU nie są dostępne — model liczy procesor.
 - Interpunkcję i wielkie litery dodaje model.
@@ -126,7 +126,7 @@ dekodera.
 python -m venv .venv
 .venv\Scripts\activate            # macOS: source .venv/bin/activate
 pip install -r requirements-build.txt
-python BAPO_Dyktowanie.py         # uruchomienie ze źródeł
+python MyDict.py         # uruchomienie ze źródeł
 python -m pytest tests            # testy
 python packaging/build.py         # aplikacja + instalator dla bieżącego systemu
 ```

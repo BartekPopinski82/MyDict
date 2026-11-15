@@ -31,4 +31,4 @@ jobs:
       - name: Autotest ze źródeł
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python BAPO_Dyktowanie.py --selftest
+        run: python MyDict.py --selftest

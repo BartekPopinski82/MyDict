@@ -246,6 +246,7 @@ class ResolvedModel:
 # Klucze API
 # ---------------------------------------------------------------------------
 
+# Stała wartość (dawna nazwa programu): jej zmiana uniemożliwiłaby odczyt zapisanych kluczy.
 ENTROPY = b"BAPO-dyktowanie/v1"
 LITE_ENTROPY = b"BAPO-transcript-lite/v1"
 

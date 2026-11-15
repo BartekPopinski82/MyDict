@@ -53,7 +53,16 @@ from PySide6.QtWidgets import (
 import dyktowanie_aktualizacje as updates
 import dyktowanie_gpu_pakiet as gpu_pack
 import dyktowanie_motyw as motyw
-from dyktowanie_app import APP_ID, APP_NAME, ORGANIZATION, __version__, data_dir, log_dir, resource_dir
+from dyktowanie_app import (
+    APP_ID,
+    APP_NAME,
+    LEGACY_NAME,
+    ORGANIZATION,
+    __version__,
+    data_dir,
+    log_dir,
+    resource_dir,
+)
 from dyktowanie_asr import (
     DEFAULT_MODEL,
     LANGUAGES,
@@ -92,6 +101,7 @@ from dyktowanie_pobieranie import Cancelled, DownloadError
 log = logging.getLogger("dyktowanie.ui")
 APP_TITLE = APP_NAME
 LOGO_FILE = resource_dir() / "zasoby" / "logo.svg"
+CPU_MODEL = "small"   # model startowy na komputerach bez karty NVIDIA (także macOS)
 
 PAUSE_OPTIONS = [
     (0.5, "Krótka — 0,5 s (szybciej, może dzielić zdania)"),
@@ -397,7 +407,7 @@ class Overlay(QWidget):
         self.typing_button.setCheckable(True)
         self.typing_button.setChecked(True)
         self.typing_button.toggled.connect(self._typing_toggled)
-        self.settings_button = ToolButton("gear", "Pokaż okno BAPO-dyktowanie", icon_color)
+        self.settings_button = ToolButton("gear", f"Pokaż okno {APP_NAME}", icon_color)
         self.settings_button.clicked.connect(self.settings_requested)
         self.close_button = ToolButton("close", "Ukryj pasek", icon_color)
         self.close_button.clicked.connect(self.close_requested)
@@ -582,11 +592,19 @@ class EngineBridge(QObject, EngineCallbacks):
 
 def app_settings() -> QSettings:
     """Ustawienia programu. Gdy katalog danych jest wskazany zmienną
-    BAPO_DYKTOWANIE_DATA (testy, zrzuty ekranu, kopia przenośna), ustawienia też
+    MYDICT_DATA (testy, zrzuty ekranu, kopia przenośna), ustawienia też
     trafiają tam — a nie do rejestru systemu."""
-    if os.environ.get("BAPO_DYKTOWANIE_DATA"):
+    if os.environ.get("MYDICT_DATA"):
         return QSettings(str(data_dir() / "ustawienia.ini"), QSettings.Format.IniFormat)
-    return QSettings(ORGANIZATION, APP_TITLE)
+    settings = QSettings(ORGANIZATION, APP_TITLE)
+    if not settings.allKeys():
+        # Program nazywał się wcześniej inaczej — przenosimy ustawienia i klucze API.
+        legacy = QSettings(ORGANIZATION, LEGACY_NAME)
+        for key in legacy.allKeys():
+            settings.setValue(key, legacy.value(key))
+        if legacy.allKeys():
+            log.info("Przeniesiono ustawienia z %s", LEGACY_NAME)
+    return settings
 
 
 def field_label(text: str) -> QLabel:
@@ -859,6 +877,7 @@ class MainWindow(QMainWindow):
         self.started_from_window = False
         self.pending_release = None
         self._gpu_reload_pending = False
+        self._gpu_auto_tried = False
         self.quitting_for_update = False
         self.update_task = Task(self)
         self.update_task.done.connect(self._on_update_checked)
@@ -896,6 +915,8 @@ class MainWindow(QMainWindow):
         self._render_transcript()
         if self.overlay_check.isChecked():
             self._show_overlay()
+        # Od razu, nie czekając na model: karta NVIDIA bez bibliotek → pobieramy je w tle.
+        QTimer.singleShot(1500, self._update_gpu_banner)
         updates.cleanup()
         if self.update_check.isChecked():
             QTimer.singleShot(4000, self._auto_check_updates)
@@ -932,13 +953,22 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.update_banner)
         self.gpu_banner = Banner("info", "bolt")
         self.gpu_later = self.gpu_banner.add_button("Nie teraz", self._dismiss_gpu_banner)
-        self.gpu_button = self.gpu_banner.add_button(f"Pobierz ({gpu_pack.APPROX_SIZE})", self._install_gpu_pack, primary=True)
+        self.gpu_button = self.gpu_banner.add_button("Pobierz teraz", self._install_gpu_pack, primary=True)
         outer.addWidget(self.gpu_banner)
+        self.cpu_banner = Banner("info", "bolt")
+        self.cpu_banner.set_message(
+            "Ten komputer nie ma karty graficznej NVIDIA",
+            "Wybrano lżejszy model, żeby tekst nadążał za mową. Najszybciej i najdokładniej działają "
+            "modele w chmurze (np. Groq) — wystarczy wkleić klucz API.",
+        )
+        self.cpu_banner.add_button("Rozumiem", self._dismiss_cpu_banner)
+        self.cpu_banner.add_button("Klucze API…", lambda: self._open_keys(), primary=True)
+        outer.addWidget(self.cpu_banner)
         self.permission_banner = Banner("warning", "shield")
         self.permission_banner.set_message(
             "Zezwól programowi na wpisywanie tekstu",
             "macOS wymaga zgody „Dostępność”, aby tekst trafiał do innych aplikacji. "
-            "Włącz BAPO-dyktowanie na liście w Ustawieniach systemowych.",
+            f"Włącz {APP_NAME} na liście w Ustawieniach systemowych.",
         )
         self.permission_banner.add_button("Otwórz ustawienia", request_typing_permission, primary=True)
         outer.addWidget(self.permission_banner)
@@ -1182,7 +1212,7 @@ class MainWindow(QMainWindow):
         self.mic_refresh.setIcon(svg_icon("refresh", muted, 16))
         self.keys_button.setIcon(svg_icon("key", muted, 16))
         self.custom_button.setIcon(svg_icon("plus", muted, 16))
-        for banner in (self.update_banner, self.gpu_banner, self.permission_banner):
+        for banner in (self.update_banner, self.gpu_banner, self.cpu_banner, self.permission_banner):
             banner.refresh_theme()
 
     def _build_tray(self):
@@ -1260,7 +1290,9 @@ class MainWindow(QMainWindow):
 
     def _load_settings(self):
         s = self.settings
-        self._select(self.model_combo, s.value("model", DEFAULT_MODEL))
+        # Pierwsze uruchomienie: bez karty NVIDIA model Turbo nie nadąża za mową — zaczynamy od lżejszego.
+        first_choice = DEFAULT_MODEL if gpu_acceleration_state() != "none" else CPU_MODEL
+        self._select(self.model_combo, s.value("model", first_choice))
         if not self.model_combo.currentData() or self.model_combo.currentData() == self.ADD_CUSTOM:
             self._select(self.model_combo, DEFAULT_MODEL)
         self._select(self.device_combo, s.value("device", "auto"))
@@ -1565,24 +1597,39 @@ class MainWindow(QMainWindow):
         """Karta NVIDIA bez bibliotek CUDA: proponujemy ich pobranie (jednorazowo)."""
         if self.gpu_task.running:
             return
-        info = self.model_info
+        state = gpu_acceleration_state()
+        local = not is_cloud_key(self._current_model)
         wanted = (
-            info is not None and info.device == "cpu"
+            local and state == "missing"
             and self.device_combo.currentData() == "auto"
             and not self.settings.value("gpu_banner_dismissed", False, type=bool)
-            and gpu_acceleration_state() == "missing"
         )
+        if wanted and not self._gpu_auto_tried:
+            # Zwykły użytkownik nie musi wiedzieć, czym są biblioteki CUDA: program sam
+            # rozpoznaje kartę i przygotowuje przyspieszenie przy pierwszym uruchomieniu.
+            self._gpu_auto_tried = True
+            self.gpu_banner.setVisible(True)
+            self._install_gpu_pack()
+            return
         if wanted:
             self.gpu_banner.clear_progress()
             self.gpu_banner.set_message(
-                "Masz kartę NVIDIA — włącz przyspieszenie",
-                "Rozpoznawanie mowy będzie kilka razy szybsze. Program pobierze biblioteki NVIDIA "
-                f"({gpu_pack.APPROX_SIZE}, jednorazowo). Teraz model działa na procesorze.",
+                "Przyspieszenie kartą graficzną nie jest jeszcze gotowe",
+                f"Program musi jednorazowo pobrać biblioteki NVIDIA ({gpu_pack.APPROX_SIZE}). "
+                "Do tego czasu rozpoznawanie działa wolniej, na procesorze.",
             )
             self.gpu_button.setVisible(True)
-            self.gpu_button.setText(f"Pobierz ({gpu_pack.APPROX_SIZE})")
+            self.gpu_button.setText("Pobierz teraz")
             self.gpu_later.setText("Nie teraz")
         self.gpu_banner.setVisible(wanted)
+        # Komputer bez karty NVIDIA: podpowiadamy, jak uzyskać dobrą szybkość.
+        self.cpu_banner.setVisible(
+            local and state == "none" and not self.settings.value("cpu_banner_dismissed", False, type=bool)
+        )
+
+    def _dismiss_cpu_banner(self):
+        self.settings.setValue("cpu_banner_dismissed", True)
+        self.cpu_banner.setVisible(False)
 
     def _dismiss_gpu_banner(self):
         if self.gpu_task.running:
@@ -1594,7 +1641,10 @@ class MainWindow(QMainWindow):
     def _install_gpu_pack(self):
         self.gpu_button.setVisible(False)
         self.gpu_later.setText("Anuluj")
-        self.gpu_banner.set_message("Pobieranie bibliotek NVIDIA…", "Możesz w tym czasie normalnie dyktować.")
+        self.gpu_banner.set_message(
+            "Przygotowuję przyspieszenie kartą graficzną (jednorazowo)",
+            "Wykryto kartę NVIDIA. Możesz już dyktować — do końca pobierania nieco wolniej.",
+        )
         self.gpu_banner.set_progress(0, 0)
         self.gpu_task.start(lambda progress, cancel: gpu_pack.install(progress, cancel))
 
@@ -1602,7 +1652,8 @@ class MainWindow(QMainWindow):
         self.gpu_banner.set_progress(done, total)
         if total > 0:
             self.gpu_banner.set_message(
-                "Pobieranie bibliotek NVIDIA…", f"{format_size(done)} z {format_size(total)} — możesz normalnie dyktować."
+                "Przygotowuję przyspieszenie kartą graficzną (jednorazowo)",
+                f"Pobrano {format_size(done)} z {format_size(total)}. Możesz już dyktować — na razie nieco wolniej.",
             )
 
     def _on_gpu_installed(self, _directory):
@@ -1618,7 +1669,7 @@ class MainWindow(QMainWindow):
 
     def _on_gpu_failed(self, message: str):
         self.gpu_banner.clear_progress()
-        self.gpu_banner.set_message("Nie udało się pobrać bibliotek NVIDIA", message)
+        self.gpu_banner.set_message("Przyspieszenie kartą graficzną nie jest jeszcze gotowe", message)
         self.gpu_button.setVisible(True)
         self.gpu_button.setText("Spróbuj ponownie")
         self.gpu_later.setText("Nie teraz")
@@ -1979,11 +2030,11 @@ def run(argv=None) -> int:
     from PySide6.QtCore import QLockFile, QStandardPaths
 
     lock_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.TempLocation)
-    lock = QLockFile(str(Path(lock_dir) / "bapo-dyktowanie.lock"))
+    lock = QLockFile(str(Path(lock_dir) / "mydict.lock"))
     lock.setStaleLockTime(0)
     # Po aktualizacji nowa wersja startuje, zanim stara zdąży się zamknąć — chwilę czekamy.
     if not lock.tryLock(8000 if "--po-aktualizacji" in sys.argv else 100):
-        QMessageBox.information(None, APP_TITLE, f"BAPO-dyktowanie już działa — znajdziesz je {TRAY_HINT}.")
+        QMessageBox.information(None, APP_TITLE, f"{APP_TITLE} już działa — znajdziesz go {TRAY_HINT}.")
         return 0
 
     window = MainWindow()

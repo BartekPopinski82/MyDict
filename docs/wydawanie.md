@@ -35,9 +35,9 @@ Program szuka w wydaniu pliku o końcówce odpowiedniej dla systemu (`dyktowanie
 
 | System | Plik |
 |---|---|
-| Windows | `BAPO-dyktowanie-<wersja>-Windows-Setup.exe` |
-| macOS Apple Silicon | `BAPO-dyktowanie-<wersja>-macOS-arm64.zip` |
-| macOS Intel (jeśli kiedyś budowany) | `BAPO-dyktowanie-<wersja>-macOS-x64.zip` |
+| Windows | `MyDict-<wersja>-Windows-Setup.exe` |
+| macOS Apple Silicon | `MyDict-<wersja>-macOS-arm64.zip` |
+| macOS Intel (jeśli kiedyś budowany) | `MyDict-<wersja>-macOS-x64.zip` |
 
 Plik `.dmg` służy tylko do pierwszej instalacji. Aktualizator instaluje wyłącznie plik, którego suma
 SHA-256 zgadza się z wydaniem (pole `digest` z GitHuba albo `SHA256SUMS.txt`).
@@ -52,7 +52,7 @@ python packaging/build.py
 ```
 
 Windows wymaga [Inno Setup 6](https://jrsoftware.org/isinfo.php) (polecenie `iscc`); bez niego
-powstaje sama aplikacja w `dist/BAPO-dyktowanie/`. Ikony z logo: `python packaging/make_icons.py`.
+powstaje sama aplikacja w `dist/MyDict/`. Ikony z logo: `python packaging/make_icons.py`.
 Zrzuty ekranu do README: `python packaging/zrzuty.py`.
 
 ## Podpisywanie (do zrobienia, gdy będą certyfikaty)
@@ -60,7 +60,7 @@ Zrzuty ekranu do README: `python packaging/zrzuty.py`.
 Wydania nie są podpisane, dlatego:
 
 - **Windows** pokazuje ostrzeżenie SmartScreen przy instalacji. Rozwiązanie: certyfikat do podpisu
-  kodu (np. Azure Trusted Signing) i podpisanie `BAPO-dyktowanie.exe` oraz instalatora w workflow.
+  kodu (np. Azure Trusted Signing) i podpisanie `MyDict.exe` oraz instalatora w workflow.
 - **macOS** wymaga „Otwórz mimo to” przy pierwszym uruchomieniu, a zgoda „Dostępność” bywa kasowana
   po aktualizacji (system wiąże ją z podpisem). Rozwiązanie: konto Apple Developer, podpis
   „Developer ID Application” (zmienna `MACOS_SIGN_IDENTITY` jest już obsługiwana przy budowaniu)

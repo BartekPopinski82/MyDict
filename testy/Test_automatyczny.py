@@ -240,7 +240,7 @@ def resolve_cloud(key: str):
 
         from dyktowanie_api_ui import ApiStore
 
-        return ApiStore(QSettings("BAPO", "BAPO-dyktowanie")).resolve(key)
+        return ApiStore(QSettings("BAPO", "MyDict")).resolve(key)
     except Exception:
         logging.getLogger("test").warning("Ustawienia programu niedostępne — klucz tylko z otoczenia", exc_info=True)
         from dyktowanie_api import resolve

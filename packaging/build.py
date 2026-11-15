@@ -3,9 +3,9 @@
     python packaging/build.py            # aplikacja + instalator
     python packaging/build.py --no-installer
 
-Windows: ``dist/BAPO-dyktowanie/`` oraz ``dist/BAPO-dyktowanie-<wersja>-Windows-Setup.exe``
+Windows: ``dist/MyDict/`` oraz ``dist/MyDict-<wersja>-Windows-Setup.exe``
          (instalator wymaga Inno Setup 6 — polecenie ``iscc``).
-macOS:   ``dist/BAPO-dyktowanie.app``, ``…-macOS-<arch>.zip`` (dla aktualizacji)
+macOS:   ``dist/MyDict.app``, ``…-macOS-<arch>.zip`` (dla aktualizacji)
          i ``…-macOS-<arch>.dmg`` (do pierwszej instalacji).
 
 Na końcu uruchamia zbudowany program z ``--selftest`` i zapisuje sumy SHA-256.
@@ -26,7 +26,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
-APP_NAME = "BAPO-dyktowanie"
+APP_NAME = "MyDict"
 IS_WIN = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
 
@@ -56,8 +56,8 @@ def executable(app: Path) -> Path:
 
 def selftest(app: Path) -> None:
     """Zbudowany program musi sam potwierdzić, że ma komplet bibliotek i zasobów."""
-    data = tempfile.mkdtemp(prefix="bapo-selftest-")
-    env = dict(os.environ, BAPO_DYKTOWANIE_DATA=data, QT_QPA_PLATFORM="offscreen")
+    data = tempfile.mkdtemp(prefix="mydict-selftest-")
+    env = dict(os.environ, MYDICT_DATA=data, QT_QPA_PLATFORM="offscreen")
     result = subprocess.run([str(executable(app)), "--selftest"], env=env, timeout=300)
     report = Path(data) / "selftest.txt"
     text = report.read_text(encoding="utf-8").strip() if report.is_file() else "(brak raportu)"
@@ -99,7 +99,7 @@ def macos_packages(app: Path, ver: str) -> list[Path]:
     run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(app), str(archive)])
     image = DIST / f"{APP_NAME}-{ver}-macOS-{arch}.dmg"
     image.unlink(missing_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix="bapo-dmg-"))
+    staging = Path(tempfile.mkdtemp(prefix="mydict-dmg-"))
     try:
         run(["ditto", str(app), str(staging / app.name)])
         os.symlink("/Applications", staging / "Applications")

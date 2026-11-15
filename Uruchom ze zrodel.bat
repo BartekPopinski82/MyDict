@@ -1,6 +1,6 @@
 @echo off
 setlocal
-rem BAPO-dyktowanie - uruchamia program w srodowisku .venv z folderu Whisperer
+rem MyDict - uruchamia program ze zrodel w srodowisku .venv z folderu Whisperer
 cd /d "%~dp0"
 set "PY=%~dp0..\.venv\Scripts\python.exe"
 set "PYW=%~dp0..\.venv\Scripts\pythonw.exe"
@@ -25,5 +25,5 @@ timeout /t 6 >nul
 rem Biblioteki opcjonalne (monitor GPU/CPU w dzienniku) - nigdy nie blokuja startu.
 "%PY%" -c "import psutil, pynvml" >nul 2>&1
 if errorlevel 1 start "" /min "%PY%" -m pip install --quiet psutil nvidia-ml-py
-start "" "%PYW%" "%~dp0BAPO_Dyktowanie.py"
+start "" "%PYW%" "%~dp0MyDict.py"
 exit /b 0

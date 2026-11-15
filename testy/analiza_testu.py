@@ -246,7 +246,7 @@ def opis(z: dict, nazwa: str) -> None:
 
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
-    domyslny = Path(os.environ.get("LOCALAPPDATA", ".")) / "BAPO-dyktowanie"
+    domyslny = Path(os.environ.get("LOCALAPPDATA", ".")) / "MyDict"
     ap = argparse.ArgumentParser(description="Analiza testu opóźnień dyktowania.")
     ap.add_argument("--od", required=True, help="początek zakresu HH:MM")
     ap.add_argument("--do", required=True, help="koniec zakresu HH:MM (bez tej minuty)")

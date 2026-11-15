@@ -44,10 +44,10 @@ RELEASE_JSON = {
     "body": "Zmiany",
     "html_url": "https://github.com/x/y/releases/tag/v2.1.0",
     "assets": [
-        {"name": "BAPO-dyktowanie-2.1.0-Windows-Setup.exe", "size": 10,
+        {"name": "MyDict-2.1.0-Windows-Setup.exe", "size": 10,
          "browser_download_url": "https://github.com/x/y/releases/download/v2.1.0/setup.exe",
          "digest": "sha256:" + "ab" * 32},
-        {"name": "BAPO-dyktowanie-2.1.0-macOS-arm64.zip", "size": 20,
+        {"name": "MyDict-2.1.0-macOS-arm64.zip", "size": 20,
          "browser_download_url": "https://github.com/x/y/releases/download/v2.1.0/mac.zip"},
         {"name": "SHA256SUMS.txt", "size": 1,
          "browser_download_url": "https://github.com/x/y/releases/download/v2.1.0/SHA256SUMS.txt"},
@@ -81,7 +81,7 @@ def test_check_reports_network_problem_as_update_error():
 def test_checksum_from_sums_file_when_digest_missing():
     release = upd.release_from_json(RELEASE_JSON)
     mac = upd.pick_asset(release, "-macOS-arm64.zip")
-    sums = f"{'cd' * 32}  BAPO-dyktowanie-2.1.0-macOS-arm64.zip\n{'ef' * 32} *inny.exe\nto nie jest suma\n"
+    sums = f"{'cd' * 32}  MyDict-2.1.0-macOS-arm64.zip\n{'ef' * 32} *inny.exe\nto nie jest suma\n"
     assert upd.expected_sha256(release, mac, lambda url: sums) == "cd" * 32
     assert upd.parse_checksums(sums)["inny.exe"] == "ef" * 32
 
@@ -116,7 +116,7 @@ def test_fetch_update_passes_checksum_and_cleans_old_files(monkeypatch, tmp_path
         return destination
 
     path = upd.fetch_update(release, fetch_file=fake)
-    assert path.name == "BAPO-dyktowanie-2.1.0-Windows-Setup.exe"
+    assert path.name == "MyDict-2.1.0-Windows-Setup.exe"
     assert seen["sha256"] == "ab" * 32
     assert not (tmp_path / "stara-wersja.exe").exists()
 

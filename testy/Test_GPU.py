@@ -1,5 +1,5 @@
 """Szybki test: ile trwa jeden przebieg modelu na tym GPU (bez mikrofonu i UI).
-Wynik zapisuje do %LOCALAPPDATA%\\BAPO-dyktowanie\\test_gpu.txt."""
+Wynik zapisuje do katalogu danych programu (test_gpu.txt)."""
 import os, subprocess, sys, time
 from pathlib import Path
 import numpy as np
@@ -56,6 +56,6 @@ try:
     p("\nnvidia-smi po teście:\n" + smi.stdout.strip())
 except Exception:
     pass
-dest = Path(os.environ.get("LOCALAPPDATA", ".")) / "BAPO-dyktowanie" / "test_gpu.txt"
+dest = Path(os.environ.get("LOCALAPPDATA", ".")) / "MyDict" / "test_gpu.txt"
 dest.write_text("\n".join(out), encoding="utf-8")
 p("\nZapisano:", dest)

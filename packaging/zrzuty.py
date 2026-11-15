@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 # Zawsze osobny katalog danych: zrzuty nie mogą dotknąć prawdziwych ustawień użytkownika.
-os.environ["BAPO_DYKTOWANIE_DATA"] = tempfile.mkdtemp(prefix="bapo-zrzuty-")
+os.environ["MYDICT_DATA"] = tempfile.mkdtemp(prefix="mydict-zrzuty-")
 
 from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -69,7 +69,7 @@ def main() -> int:
     ui.HotkeyListener.start = lambda self: True
     ui.HotkeyListener.stop = lambda self: None
     ui.Microphone.devices = staticmethod(lambda: ["Mikrofon (USB Audio)", "Zestaw słuchawkowy"])
-    ui.gpu_acceleration_state = lambda: "missing"
+    ui.gpu_acceleration_state = lambda: "ready"
     ui.foreground_window = lambda: None   # zrzut nie może pokazać tytułu prywatnego okna
     ui.updates.cleanup = lambda: None
     ui.MainWindow._build_tray = lambda self: setattr(self, "tray", None)
@@ -81,7 +81,7 @@ def main() -> int:
     release = Release(
         "2.1.0",
         "## Co nowego\n\n- Szybsze uruchamianie modelu Turbo\n- Nowy tryb ciemny\n- Poprawki wpisywania w przeglądarkach",
-        "https://github.com/", (Asset("BAPO-dyktowanie-2.1.0-Windows-Setup.exe", "https://github.com/x", 150_000_000),),
+        "https://github.com/", (Asset("MyDict-2.1.0-Windows-Setup.exe", "https://github.com/x", 150_000_000),),
     )
 
     for mode in ("light", "dark"):
@@ -102,6 +102,14 @@ def main() -> int:
         window.pending_release = release
         window.update_banner.set_message("Dostępna jest wersja 2.1.0", "Masz wersję 2.0.0. Aktualizacja zajmie chwilę, ustawienia zostają bez zmian.")
         window.update_banner.setVisible(True)
+        window.gpu_banner.set_message(
+            "Przygotowuję przyspieszenie kartą graficzną (jednorazowo)",
+            "Pobrano 420 MB z 1,0 GB. Możesz już dyktować — na razie nieco wolniej.",
+        )
+        window.gpu_banner.set_progress(420, 1020)
+        window.gpu_button.setVisible(False)
+        window.gpu_later.setText("Anuluj")
+        window.gpu_banner.setVisible(True)
         window.engine.start_listening()
         window._update_controls()
         for _ in range(5):

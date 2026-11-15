@@ -6,8 +6,8 @@
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
-#define AppName "BAPO-dyktowanie"
-#define AppExe "BAPO-dyktowanie.exe"
+#define AppName "MyDict"
+#define AppExe "MyDict.exe"
 
 [Setup]
 AppId={{6F0B7C1E-5D2A-4E0B-9B55-BA9D0D1C7A20}

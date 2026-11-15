@@ -311,7 +311,13 @@ def test_cloud_transcriber_returns_words(mock):
     assert ("prompt" in dict(mock.requests[-1]["fields"]))
 
 
-def test_engine_cloud_mode_one_request_per_utterance(mock):
+def test_engine_cloud_mode_one_request_per_utterance(mock, monkeypatch):
+    # Sygnał testowy to czysty ton: detektor energii uznaje go za mowę, a Silero VAD
+    # (słusznie) nie — dlatego test nie może zależeć od tego, czy Silero jest zainstalowany.
+    import dyktowanie_asr
+    from dyktowanie_core import EnergyVAD
+
+    monkeypatch.setattr(dyktowanie_asr, "make_vad", EnergyVAD)
     recorder = Recorder()
     engine = DictationEngine(recorder)
     engine.start()

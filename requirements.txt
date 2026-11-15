@@ -1,5 +1,12 @@
-sounddevice>=0.4.6
-PyAudioWPatch>=0.2.12; sys_platform == "win32"
-nvidia-ml-py>=12.0
-psutil>=5.9
+# Biblioteki programu (wersja samodzielna — własne środowisko, bez PyTorcha).
+PySide6-Essentials>=6.8,<6.12
+faster-whisper>=1.2,<1.3
+ctranslate2>=4.6,<5
+numpy>=1.26
+sounddevice>=0.5
 websockets>=14
+psutil>=5.9
+truststore>=0.10
+nvidia-ml-py>=12.0; sys_platform != "darwin"
+PyAudioWPatch>=0.2.12; sys_platform == "win32"
+keyring>=25; sys_platform == "darwin"

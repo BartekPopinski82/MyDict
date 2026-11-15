@@ -7,11 +7,13 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from dyktowanie_app import APP_NAME, FROZEN, IS_MAC, __version__, log_dir  # noqa: E402
+
+
 def _log_directory() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
-    path = Path(base) / "BAPO-dyktowanie"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return log_dir()
 
 
 # Zmiana tej wartości jednorazowo czyści stare dzienniki i CSV pomiaru przy następnym starcie.
@@ -70,16 +72,82 @@ def _show_error(message: str):
     if sys.platform.startswith("win"):
         import ctypes
 
-        ctypes.windll.user32.MessageBoxW(0, message, "BAPO-dyktowanie", 0x10)
-    else:
-        print(message, file=sys.stderr)
+        ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, 0x10)
+        return
+    if IS_MAC:
+        import subprocess
+
+        script = 'display alert "{}" message "{}" as critical'.format(
+            APP_NAME, message.replace("\\", "\\\\").replace('"', '\\"')
+        )
+        try:
+            subprocess.run(["/usr/bin/osascript", "-e", script], timeout=120, check=False)
+            return
+        except (OSError, subprocess.SubprocessError):
+            pass
+    sys.stderr.write(message + "\n")
+
+
+def _use_system_certificates():
+    """Połączenia HTTPS (aktualizacje, modele, API) ufają certyfikatom z magazynu
+    systemu — działa też w sieciach firmowych i w aplikacji spakowanej na macOS."""
+    try:
+        import truststore
+
+        truststore.inject_into_ssl()
+    except Exception:
+        logging.getLogger("dyktowanie").info("truststore niedostępny — domyślne certyfikaty Pythona")
+
+
+def selftest() -> int:
+    """Szybki test instalacji (``--selftest``): czy komplet bibliotek i zasobów jest
+    na miejscu. Używany przy budowaniu wydań — nie otwiera okna i nie pobiera modeli."""
+    import importlib
+
+    problems = []
+    for name in ("numpy", "sounddevice", "websockets", "ctranslate2", "faster_whisper",
+                 "PySide6.QtWidgets", "PySide6.QtSvg", "dyktowanie_ui", "dyktowanie_aktualizacje"):
+        try:
+            importlib.import_module(name)
+        except Exception as exc:  # brak modułu albo biblioteki systemowej
+            problems.append(f"{name}: {exc!r}")
+    try:
+        from dyktowanie_api import CLOUD_MODELS
+        from dyktowanie_app import resource_dir
+        from dyktowanie_core import make_vad
+        from dyktowanie_platforma import foreground_window, typing_permission_granted
+
+        if not CLOUD_MODELS:
+            problems.append("dostawcy.json: brak modeli")
+        if not (resource_dir() / "zasoby" / "logo.svg").is_file():
+            problems.append("brak zasoby/logo.svg")
+        vad = type(make_vad()).__name__
+        if vad != "SileroVAD":
+            problems.append(f"wykrywanie mowy: {vad} zamiast SileroVAD (brak modelu VAD w pakiecie)")
+        foreground_window()
+        typing_permission_granted()
+    except Exception as exc:
+        problems.append(f"test składników: {exc!r}")
+    report = "\n".join(problems) if problems else f"OK {APP_NAME} {__version__}"
+    logging.getLogger("dyktowanie").info("Selftest: %s", report)
+    try:
+        (_log_directory() / "selftest.txt").write_text(report + "\n", encoding="utf-8")
+        sys.stdout.write(report + "\n")
+    except Exception:
+        pass
+    return 1 if problems else 0
 
 
 def main():
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     os.environ.setdefault("PYTHONUTF8", "1")
     log_path = _setup_logging()
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    logging.getLogger("dyktowanie").info(
+        "Start %s %s (%s, %s)", APP_NAME, __version__, sys.platform, "aplikacja" if FROZEN else "źródła"
+    )
+    _use_system_certificates()
+    if "--selftest" in sys.argv:
+        return selftest()
 
     def excepthook(kind, value, traceback):
         logging.getLogger("dyktowanie").critical("Nieobsłużony błąd", exc_info=(kind, value, traceback))
@@ -98,14 +166,18 @@ def main():
     try:
         from dyktowanie_ui import run
     except ImportError as exc:
-        _show_error(
-            "Brakuje bibliotek programu (PySide6 / numpy).\n"
-            "Uruchom „Uruchom BAPO-dyktowanie.bat”, który korzysta ze środowiska .venv BAPO-transcript.\n\n"
-            f"Szczegóły: {exc}"
+        logging.getLogger("dyktowanie").critical("Brak bibliotek", exc_info=True)
+        hint = (
+            "Zainstaluj program ponownie." if FROZEN
+            else "Zainstaluj biblioteki: pip install -r requirements.txt"
         )
+        _show_error(f"Brakuje bibliotek programu.\n{hint}\n\nSzczegóły: {exc}")
         return 1
     return run(sys.argv)
 
 
 if __name__ == "__main__":
+    import multiprocessing
+
+    multiprocessing.freeze_support()   # wymagane w aplikacji spakowanej, gdy biblioteka uruchamia procesy
     sys.exit(main())

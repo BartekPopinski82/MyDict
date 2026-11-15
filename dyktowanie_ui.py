@@ -7,21 +7,20 @@ import logging
 import math
 import os
 import sys
+import threading
 import time
 from collections import deque
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QObject, QPoint, QRectF, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QByteArray, QObject, QPoint, QRectF, QSettings, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction,
     QColor,
-    QFont,
-    QFontDatabase,
+    QDesktopServices,
     QGuiApplication,
     QIcon,
     QPainter,
     QPainterPath,
-    QPalette,
     QPen,
     QPixmap,
 )
@@ -35,7 +34,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -52,6 +50,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import dyktowanie_aktualizacje as updates
+import dyktowanie_gpu_pakiet as gpu_pack
+import dyktowanie_motyw as motyw
+from dyktowanie_app import APP_ID, APP_NAME, ORGANIZATION, __version__, data_dir, log_dir, resource_dir
 from dyktowanie_asr import (
     DEFAULT_MODEL,
     LANGUAGES,
@@ -61,30 +63,35 @@ from dyktowanie_asr import (
     Microphone,
     ModelInfo,
     batch_transcription_running,
+    gpu_acceleration_state,
+    reset_gpu_libraries,
 )
-from dyktowanie_api import CLOUD_MODELS, PROVIDERS, is_cloud_key
+from dyktowanie_api import CLOUD_MODELS, is_cloud_key
 from dyktowanie_api_ui import ApiKeysDialog, ApiStore, CustomModelDialog
 from dyktowanie_core import SessionText, display_tail, level_to_unit
 from dyktowanie_latencja import tracker as latency
-from dyktowanie_windows import (
+from dyktowanie_platforma import (
     DEFAULT_HOTKEY,
     HOTKEYS,
+    HOTKEY_SUPPORTED,
+    IS_MAC,
     IS_WINDOWS,
+    TRAY_HINT,
+    TYPING_SUPPORTED,
     HotkeyListener,
     TypingEngine,
     foreground_window,
     make_window_non_activating,
     own_process_elevated,
+    request_typing_permission,
+    typing_permission_granted,
 )
+from dyktowanie_pobieranie import Cancelled, DownloadError
 
 
 log = logging.getLogger("dyktowanie.ui")
-APP_TITLE = "BAPO-dyktowanie"
-HERE = Path(__file__).resolve().parent
-ICON_CANDIDATES = [
-    HERE / "files" / ("ikonka.icns" if sys.platform == "darwin" else "ikonka.ico"),
-    HERE.parent / "files" / ("ikonka.icns" if sys.platform == "darwin" else "ikonka.ico"),
-]
+APP_TITLE = APP_NAME
+LOGO_FILE = resource_dir() / "zasoby" / "logo.svg"
 
 PAUSE_OPTIONS = [
     (0.5, "Krótka — 0,5 s (szybciej, może dzielić zdania)"),
@@ -92,12 +99,6 @@ PAUSE_OPTIONS = [
     (1.0, "Dłuższa — 1 s (dla spokojnego dyktowania)"),
     (1.5, "Długa — 1,5 s"),
 ]
-
-BLUE = "#087BF0"
-CYAN = "#17B8D6"
-RED = "#E5484D"
-NAVY = "#0A1540"
-MUTED = "#65738A"
 
 SVG_PATHS = {
     "mic": '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21M8.5 21h7"/>',
@@ -109,6 +110,11 @@ SVG_PATHS = {
     "save": '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
     "trash": '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     "refresh": '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
+    "download": '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/>',
+    "bolt": '<path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/>',
+    "shield": '<path d="M12 3l7 3v5.5c0 4.2-2.9 7.6-7 9.5-4.1-1.9-7-5.3-7-9.5V6z"/><path d="M9 12l2.2 2.2L15 10.5"/>',
+    "key": '<circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16 6.5l2.5 2.5"/>',
+    "plus": '<path d="M12 5v14M5 12h14"/>',
 }
 
 
@@ -117,31 +123,48 @@ SVG_PATHS = {
 SHOW_TENTATIVE = False
 
 
-def svg_icon(name: str, color: str = NAVY, size: int = 24) -> QIcon:
+def svg_icon(name: str, color: str | None = None, size: int = 24) -> QIcon:
+    """Ikona liniowa w podanym kolorze (domyślnie kolor tekstu motywu), ostra na ekranach HiDPI."""
+    color = color or motyw.color("text")
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" '
         f'fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
         f"{SVG_PATHS[name]}</svg>"
     )
     renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
-    pixmap = QPixmap(size, size)
+    scale = 3   # zapas rozdzielczości na skalowanie 150–300%
+    pixmap = QPixmap(size * scale, size * scale)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     renderer.render(painter)
     painter.end()
+    pixmap.setDevicePixelRatio(scale)
     return QIcon(pixmap)
+
+
+_LOGO_RENDERER: QSvgRenderer | None = None
+
+
+def _logo_renderer() -> QSvgRenderer | None:
+    global _LOGO_RENDERER
+    if _LOGO_RENDERER is None and LOGO_FILE.is_file():
+        renderer = QSvgRenderer(str(LOGO_FILE))
+        if renderer.isValid():
+            _LOGO_RENDERER = renderer
+    return _LOGO_RENDERER
 
 
 def app_icon() -> QIcon:
-    for path in ICON_CANDIDATES:
-        if path.is_file():
-            return QIcon(str(path))
-    pixmap = QPixmap(64, 64)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    LogoMark.paint_mark(painter, 64)
-    painter.end()
-    return QIcon(pixmap)
+    """Ikona programu w kilku rozmiarach — z logo SVG, a bez pliku rysowana w kodzie."""
+    icon = QIcon()
+    for size in (16, 24, 32, 48, 64, 128, 256):
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        LogoMark.paint_mark(painter, size)
+        painter.end()
+        icon.addPixmap(pixmap)
+    return icon
 
 
 # ---------------------------------------------------------------------------
@@ -177,16 +200,14 @@ class LogoMark(QWidget):
     @staticmethod
     def paint_mark(painter: QPainter, size: int):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        renderer = _logo_renderer()
+        if renderer is not None:
+            renderer.render(painter, QRectF(0, 0, size, size))
+            return
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(BLUE))
+        painter.setBrush(QColor("#0A6CF0"))
         painter.drawRoundedRect(QRectF(1, 1, size - 2, size - 2), size * 0.25, size * 0.25)
-        painter.setBrush(QColor(CYAN))
-        bar = max(2.0, size / 15)
-        for index, ratio in enumerate((.30, .52, .30)):
-            height = size * ratio
-            x = size * 0.12 + index * (bar + size * 0.05)
-            painter.drawRoundedRect(QRectF(x, (size - height) / 2, bar, height), bar / 2, bar / 2)
-        _draw_mic(painter, size * 0.64, size * 0.52, size * 0.36, QColor("white"))
+        _draw_mic(painter, size * 0.5, size * 0.52, size * 0.42, QColor("white"))
 
     def paintEvent(self, _event):
         painter = QPainter(self)
@@ -220,10 +241,10 @@ class MicButton(QAbstractButton):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         cx, cy = self.width() / 2, self.height() / 2
         r = self.diameter / 2
-        colors = {"idle": BLUE, "listening": RED, "loading": "#8A97AD", "error": "#8A97AD"}
-        color = QColor(colors.get(self.state, BLUE))
+        colors = {"idle": "accent", "listening": "danger", "loading": "neutral", "error": "neutral"}
+        color = motyw.qcolor(colors.get(self.state, "accent"))
         if self.state == "listening":
-            halo = QColor(RED)
+            halo = motyw.qcolor("danger")
             for scale, alpha in ((0.22 + 0.55 * self.level, 55), (0.10 + 0.25 * self.level, 90)):
                 halo.setAlpha(alpha)
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -255,11 +276,10 @@ class MicButton(QAbstractButton):
 class Waveform(QWidget):
     """Przewijany wykres głośności — od razu widać, że mikrofon „słyszy”."""
 
-    def __init__(self, bars=28, active_color=CYAN, idle_color="#C5D0DD", parent=None):
+    def __init__(self, bars=28, idle_color: str | None = None, parent=None):
         super().__init__(parent)
         self.values = deque([0.0] * bars, maxlen=bars)
-        self.active_color = QColor(active_color)
-        self.idle_color = QColor(idle_color)
+        self._idle_override = idle_color   # pasek pływający ma własne, stałe kolory
         self.active = False
         self.setMinimumSize(bars * 4, 26)
 
@@ -272,7 +292,8 @@ class Waveform(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(self.active_color if self.active else self.idle_color)
+        idle = QColor(self._idle_override) if self._idle_override else motyw.qcolor("wave_idle")
+        painter.setBrush(motyw.qcolor("cyan") if self.active else idle)
         count = len(self.values)
         step = self.width() / count
         bar = max(2.0, step * 0.55)
@@ -324,8 +345,11 @@ class Overlay(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        if IS_MAC:
+            # Bez tego macOS chowa okna narzędziowe, gdy aktywna jest inna aplikacja.
+            self.setAttribute(Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setFixedSize(620, 96)
+        self.setFixedSize(640, 104)
         self._drag_offset = None
         self.listening = False
         self.caret_visible = True
@@ -360,7 +384,7 @@ class Overlay(QWidget):
         center.addWidget(self.text, 1)
         layout.addLayout(center, 1)
 
-        self.wave = Waveform(18, CYAN, "#3B4A68")
+        self.wave = Waveform(18, motyw.OVERLAY["wave_idle"])
         self.wave.setFixedSize(64, 30)
         layout.addWidget(self.wave)
 
@@ -368,13 +392,14 @@ class Overlay(QWidget):
         tools.setSpacing(2)
         row = QHBoxLayout()
         row.setSpacing(2)
-        self.typing_button = ToolButton("keyboard", "Wpisywanie do aktywnego okna: włączone", "#C9D5E8")
+        icon_color = motyw.OVERLAY["icon"]
+        self.typing_button = ToolButton("keyboard", "Wpisywanie do aktywnego okna: włączone", icon_color)
         self.typing_button.setCheckable(True)
         self.typing_button.setChecked(True)
         self.typing_button.toggled.connect(self._typing_toggled)
-        self.settings_button = ToolButton("gear", "Pokaż okno BAPO-dyktowanie", "#C9D5E8")
+        self.settings_button = ToolButton("gear", "Pokaż okno BAPO-dyktowanie", icon_color)
         self.settings_button.clicked.connect(self.settings_requested)
-        self.close_button = ToolButton("close", "Ukryj pasek", "#C9D5E8")
+        self.close_button = ToolButton("close", "Ukryj pasek", icon_color)
         self.close_button.clicked.connect(self.close_requested)
         row.addWidget(self.typing_button)
         row.addWidget(self.settings_button)
@@ -433,12 +458,15 @@ class Overlay(QWidget):
 
     def _render(self):
         stable, tentative = self._stable, self._tentative
+        look = motyw.OVERLAY
         if not stable and not tentative:
             if self.listening:
-                body = '<span style="color:#7F91B2">Mów — tekst pojawi się tutaj i w aktywnym oknie…</span>'
+                hint = "Mów — tekst pojawi się tutaj i w aktywnym oknie…"
+            elif HOTKEY_SUPPORTED:
+                hint = "Naciśnij mikrofon albo skrót, aby dyktować."
             else:
-                body = '<span style="color:#7F91B2">Naciśnij mikrofon albo skrót, aby dyktować.</span>'
-            self.text.setText(body)
+                hint = "Naciśnij mikrofon, aby dyktować."
+            self.text.setText(f'<span style="color:{look["placeholder"]}">{hint}</span>')
             return
         full = stable + tentative
         tail, cut = display_tail(full, 150)
@@ -446,11 +474,12 @@ class Overlay(QWidget):
         shown_stable, shown_tentative = tail[:split], tail[split:]
         caret = ""
         if self.listening:
-            caret = f'<span style="color:{CYAN if self.caret_visible else "transparent"}">▍</span>'
+            caret_color = motyw.DARK["cyan"] if self.caret_visible else "transparent"
+            caret = f'<span style="color:{caret_color}">▍</span>'
         body = (
             ("… " if cut else "")
             + html.escape(shown_stable)
-            + f'<span style="color:#8FA3C6">{html.escape(shown_tentative)}</span>'
+            + f'<span style="color:{look["tentative"]}">{html.escape(shown_tentative)}</span>'
             + caret
         )
         self.text.setText(body)
@@ -466,10 +495,12 @@ class Overlay(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         painter.setPen(QPen(QColor(255, 255, 255, 30), 1))
-        painter.setBrush(QColor(12, 21, 46, 242))
+        background = QColor(motyw.OVERLAY["bg"])
+        background.setAlpha(242)
+        painter.setBrush(background)
         painter.drawRoundedRect(rect, 22, 22)
         if self.listening:
-            accent = QColor(RED)
+            accent = QColor(motyw.DARK["danger"])
             accent.setAlpha(160)
             painter.setPen(QPen(accent, 1.4))
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -549,6 +580,15 @@ class EngineBridge(QObject, EngineCallbacks):
 # ---------------------------------------------------------------------------
 
 
+def app_settings() -> QSettings:
+    """Ustawienia programu. Gdy katalog danych jest wskazany zmienną
+    BAPO_DYKTOWANIE_DATA (testy, zrzuty ekranu, kopia przenośna), ustawienia też
+    trafiają tam — a nie do rejestru systemu."""
+    if os.environ.get("BAPO_DYKTOWANIE_DATA"):
+        return QSettings(str(data_dir() / "ustawienia.ini"), QSettings.Format.IniFormat)
+    return QSettings(ORGANIZATION, APP_TITLE)
+
+
 def field_label(text: str) -> QLabel:
     label = QLabel(text)
     label.setProperty("fieldLabel", True)
@@ -562,14 +602,246 @@ def helper_label(text: str) -> QLabel:
     return label
 
 
+def group_label(text: str) -> QLabel:
+    label = QLabel(text.upper())
+    label.setProperty("groupTitle", True)
+    return label
+
+
+def repolish(widget: QWidget):
+    """Po zmianie właściwości używanej w arkuszu stylów trzeba przeliczyć styl."""
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+
+
+def format_size(size: float) -> str:
+    if size >= 1024 ** 3:
+        return f"{size / 1024 ** 3:.1f} GB".replace(".", ",")
+    return f"{size / 1024 ** 2:.0f} MB"
+
+
+class Task(QObject):
+    """Praca w tle (sieć, pobieranie) z wynikiem dostarczanym do wątku interfejsu."""
+
+    progress = Signal(float, float)
+    done = Signal(object)
+    failed = Signal(str)
+    cancelled = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.cancel_event = threading.Event()
+        self.running = False
+        self._last_report = 0.0
+
+    def start(self, work):
+        """``work(progress, cancel_event)`` działa w osobnym wątku."""
+        if self.running:
+            return
+        self.running = True
+        self.cancel_event.clear()
+
+        def report(done: float, total: float):
+            now = time.monotonic()
+            if now - self._last_report >= 0.1 or (total and done >= total):
+                self._last_report = now
+                self.progress.emit(float(done), float(total))
+
+        def run():
+            try:
+                result = work(report, self.cancel_event)
+            except Cancelled:
+                self.running = False
+                self.cancelled.emit()
+            except Exception as exc:
+                log.warning("Zadanie w tle nie powiodło się: %s", exc, exc_info=not isinstance(
+                    exc, (updates.UpdateError, DownloadError)))
+                self.running = False
+                self.failed.emit(str(exc))
+            else:
+                self.running = False
+                self.done.emit(result)
+
+        threading.Thread(target=run, name="dyktowanie-zadanie", daemon=True).start()
+
+    def cancel(self):
+        self.cancel_event.set()
+
+
+class Banner(QFrame):
+    """Pasek informacji nad treścią okna: ikona, tytuł, opis, przyciski, postęp."""
+
+    def __init__(self, kind: str, icon: str, parent=None):
+        super().__init__(parent)
+        self.kind = kind
+        self.icon_name = icon
+        self.setProperty("banner", kind)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 10, 10, 10)
+        layout.setSpacing(12)
+        self.icon = QLabel()
+        self.icon.setFixedSize(22, 22)
+        layout.addWidget(self.icon, 0, Qt.AlignmentFlag.AlignTop)
+        texts = QVBoxLayout()
+        texts.setSpacing(2)
+        self.title = QLabel("")
+        self.title.setProperty("bannerTitle", True)
+        self.text = QLabel("")
+        self.text.setProperty("bannerText", True)
+        self.text.setWordWrap(True)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 1000)
+        self.bar.setVisible(False)
+        texts.addWidget(self.title)
+        texts.addWidget(self.text)
+        texts.addWidget(self.bar)
+        layout.addLayout(texts, 1)
+        self.buttons = QHBoxLayout()
+        self.buttons.setSpacing(6)
+        layout.addLayout(self.buttons)
+        self.refresh_theme()
+        self.setVisible(False)
+
+    def add_button(self, text: str, handler, primary: bool = False) -> QPushButton:
+        button = QPushButton(text)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setProperty("primary" if primary else "flat", True)
+        button.clicked.connect(handler)
+        self.buttons.addWidget(button)
+        return button
+
+    def set_message(self, title: str, text: str = ""):
+        self.title.setText(title)
+        self.text.setText(text)
+        self.text.setVisible(bool(text))
+
+    def set_progress(self, done: float, total: float):
+        self.bar.setVisible(True)
+        if total > 0:
+            self.bar.setRange(0, 1000)
+            self.bar.setValue(int(1000 * min(1.0, done / total)))
+        else:
+            self.bar.setRange(0, 0)
+
+    def clear_progress(self):
+        self.bar.setVisible(False)
+
+    def refresh_theme(self):
+        tone = "warning_text" if self.kind == "warning" else "accent"
+        self.icon.setPixmap(svg_icon(self.icon_name, motyw.color(tone), 22).pixmap(22, 22))
+
+
+class UpdateDialog(QDialog):
+    """Okno aktualizacji: co nowego, pobieranie z postępem, instalacja."""
+
+    def __init__(self, release, parent=None):
+        super().__init__(parent)
+        self.release = release
+        self.installing = False
+        self.setWindowTitle("Aktualizacja programu")
+        self.setMinimumSize(520, 420)
+        self.task = Task(self)
+        self.task.progress.connect(self._on_progress)
+        self.task.done.connect(self._on_downloaded)
+        self.task.failed.connect(self._on_failed)
+        self.task.cancelled.connect(self._on_cancelled)
+        self.can_install, self.reason = updates.can_self_install()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 18)
+        layout.setSpacing(10)
+        title = QLabel(f"Dostępna jest wersja {release.version}")
+        title.setProperty("sectionTitle", True)
+        layout.addWidget(title)
+        layout.addWidget(helper_label(f"Masz wersję {__version__}. Ustawienia, klucze i pobrane modele zostają bez zmian."))
+        self.notes = QTextEdit()
+        self.notes.setReadOnly(True)
+        self.notes.setProperty("notes", True)
+        self.notes.setMarkdown(release.notes or "Brak opisu zmian.")
+        layout.addWidget(self.notes, 1)
+        self.status = helper_label("" if self.can_install else self.reason)
+        layout.addWidget(self.status)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 1000)
+        self.bar.setVisible(False)
+        layout.addWidget(self.bar)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(8)
+        page = QPushButton("Strona wydania")
+        page.setProperty("flat", True)
+        page.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(release.page_url)))
+        buttons.addWidget(page)
+        buttons.addStretch(1)
+        self.later = QPushButton("Później")
+        self.later.clicked.connect(self.reject)
+        buttons.addWidget(self.later)
+        self.install_button = QPushButton(
+            "Zainstaluj i uruchom ponownie" if self.can_install else "Pobierz ze strony"
+        )
+        self.install_button.setProperty("primary", True)
+        self.install_button.setDefault(True)
+        self.install_button.clicked.connect(self._start)
+        buttons.addWidget(self.install_button)
+        layout.addLayout(buttons)
+
+    def _start(self):
+        if not self.can_install:
+            QDesktopServices.openUrl(QUrl(self.release.page_url))
+            self.reject()
+            return
+        self.install_button.setEnabled(False)
+        self.later.setText("Anuluj")
+        self.bar.setVisible(True)
+        self.bar.setRange(0, 0)
+        self.status.setText("Pobieranie aktualizacji…")
+        self.task.start(lambda progress, cancel: updates.fetch_update(self.release, progress, cancel))
+
+    def _on_progress(self, done: float, total: float):
+        if total > 0:
+            self.bar.setRange(0, 1000)
+            self.bar.setValue(int(1000 * done / total))
+            self.status.setText(f"Pobieranie aktualizacji… {format_size(done)} z {format_size(total)}")
+
+    def _on_downloaded(self, package):
+        self.status.setText("Instalowanie — program uruchomi się ponownie…")
+        self.bar.setRange(0, 0)
+        try:
+            updates.install(package)
+        except updates.UpdateError as exc:
+            self._on_failed(str(exc))
+            return
+        self.installing = True
+        self.accept()
+
+    def _on_failed(self, message: str):
+        self.bar.setVisible(False)
+        self.install_button.setEnabled(True)
+        self.install_button.setText("Spróbuj ponownie")
+        self.later.setText("Później")
+        self.status.setText(f'<span style="color:{motyw.color("danger_text")}">{html.escape(message)}</span>')
+
+    def _on_cancelled(self):
+        self.bar.setVisible(False)
+        self.install_button.setEnabled(True)
+        self.later.setText("Później")
+        self.status.setText("Pobieranie przerwane — można je wznowić.")
+
+    def reject(self):
+        if self.task.running:
+            self.task.cancel()
+            return
+        super().reject()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
         self.setWindowIcon(app_icon())
-        self.resize(1000, 680)
-        self.setMinimumSize(880, 600)
-        self.settings = QSettings("BAPO", APP_TITLE)
+        self.resize(1080, 740)
+        self.setMinimumSize(940, 620)
+        self.settings = app_settings()
         self.api = ApiStore(self.settings)
         self._current_model = ""
 
@@ -585,6 +857,18 @@ class MainWindow(QMainWindow):
         self.model_info: ModelInfo | None = None
         self.own_elevated = own_process_elevated()
         self.started_from_window = False
+        self.pending_release = None
+        self._gpu_reload_pending = False
+        self.quitting_for_update = False
+        self.update_task = Task(self)
+        self.update_task.done.connect(self._on_update_checked)
+        self.update_task.failed.connect(self._on_update_check_failed)
+        self._manual_update_check = False
+        self.gpu_task = Task(self)
+        self.gpu_task.progress.connect(self._on_gpu_progress)
+        self.gpu_task.done.connect(self._on_gpu_installed)
+        self.gpu_task.failed.connect(self._on_gpu_failed)
+        self.gpu_task.cancelled.connect(lambda: self._on_gpu_failed("Pobieranie przerwane — można je wznowić."))
         self.hide_overlay_timer = QTimer(self)
         self.hide_overlay_timer.setSingleShot(True)
         self.hide_overlay_timer.timeout.connect(self._auto_hide_overlay)
@@ -594,6 +878,7 @@ class MainWindow(QMainWindow):
         self._load_settings()
         self._connect()
         self._build_tray()
+        self._refresh_icons()
 
         self.level_timer = QTimer(self)
         self.level_timer.timeout.connect(self._tick_level)
@@ -611,31 +896,52 @@ class MainWindow(QMainWindow):
         self._render_transcript()
         if self.overlay_check.isChecked():
             self._show_overlay()
+        updates.cleanup()
+        if self.update_check.isChecked():
+            QTimer.singleShot(4000, self._auto_check_updates)
 
     # -- budowa ----------------------------------------------------------------
 
     def _build(self):
         root = QWidget()
         outer = QVBoxLayout(root)
-        outer.setContentsMargins(22, 18, 22, 18)
+        outer.setContentsMargins(24, 20, 24, 14)
         outer.setSpacing(14)
 
         header = QHBoxLayout()
-        header.setSpacing(12)
+        header.setSpacing(14)
         header.addWidget(LogoMark(44))
         titles = QVBoxLayout()
-        titles.setSpacing(0)
+        titles.setSpacing(1)
         title = QLabel("Dyktowanie na żywo")
         title.setProperty("pageTitle", True)
-        subtitle = QLabel("Mów — tekst pojawia się od razu w aktywnym oknie: Word, przeglądarka, poczta, komunikatory.")
+        subtitle = QLabel("Mów — tekst pojawia się od razu tam, gdzie piszesz: w dokumencie, przeglądarce, poczcie, komunikatorze.")
         subtitle.setProperty("pageSubtitle", True)
         titles.addWidget(title)
         titles.addWidget(subtitle)
         header.addLayout(titles, 1)
         self.status_pill = QLabel("Przygotowanie…")
         self.status_pill.setProperty("pill", "busy")
-        header.addWidget(self.status_pill, 0, Qt.AlignmentFlag.AlignTop)
+        header.addWidget(self.status_pill, 0, Qt.AlignmentFlag.AlignVCenter)
         outer.addLayout(header)
+
+        # Banery: aktualizacja, przyspieszenie GPU, zgoda systemu na wpisywanie.
+        self.update_banner = Banner("info", "download")
+        self.update_banner.add_button("Później", self._dismiss_update_banner)
+        self.update_banner.add_button("Zobacz i zainstaluj", self._open_update_dialog, primary=True)
+        outer.addWidget(self.update_banner)
+        self.gpu_banner = Banner("info", "bolt")
+        self.gpu_later = self.gpu_banner.add_button("Nie teraz", self._dismiss_gpu_banner)
+        self.gpu_button = self.gpu_banner.add_button(f"Pobierz ({gpu_pack.APPROX_SIZE})", self._install_gpu_pack, primary=True)
+        outer.addWidget(self.gpu_banner)
+        self.permission_banner = Banner("warning", "shield")
+        self.permission_banner.set_message(
+            "Zezwól programowi na wpisywanie tekstu",
+            "macOS wymaga zgody „Dostępność”, aby tekst trafiał do innych aplikacji. "
+            "Włącz BAPO-dyktowanie na liście w Ustawieniach systemowych.",
+        )
+        self.permission_banner.add_button("Otwórz ustawienia", request_typing_permission, primary=True)
+        outer.addWidget(self.permission_banner)
 
         body = QHBoxLayout()
         body.setSpacing(16)
@@ -644,18 +950,18 @@ class MainWindow(QMainWindow):
         live = QFrame()
         live.setProperty("card", True)
         live_layout = QVBoxLayout(live)
-        live_layout.setContentsMargins(18, 16, 18, 14)
-        live_layout.setSpacing(10)
+        live_layout.setContentsMargins(20, 18, 20, 16)
+        live_layout.setSpacing(12)
         live_top = QHBoxLayout()
         live_title = QLabel("Transkrypcja")
         live_title.setProperty("cardTitle", True)
         live_top.addWidget(live_title)
         live_top.addStretch(1)
-        self.main_wave = Waveform(36, CYAN, "#D5DEEA")
-        self.main_wave.setFixedSize(150, 26)
+        self.main_wave = Waveform(36)
+        self.main_wave.setFixedSize(160, 26)
         live_top.addWidget(self.main_wave)
         live_layout.addLayout(live_top)
-        self.target_label = QLabel("Okno docelowe: —")
+        self.target_label = QLabel("Pisanie do: —")
         self.target_label.setProperty("targetLabel", True)
         live_layout.addWidget(self.target_label)
         self.transcript = QTextEdit()
@@ -665,16 +971,14 @@ class MainWindow(QMainWindow):
         actions = QHBoxLayout()
         actions.setSpacing(8)
         self.copy_button = QPushButton("Kopiuj wszystko")
-        self.copy_button.setIcon(svg_icon("copy", BLUE, 16))
         self.copy_button.setProperty("secondary", True)
         self.save_button = QPushButton("Zapisz jako .txt")
-        self.save_button.setIcon(svg_icon("save", BLUE, 16))
         self.save_button.setProperty("secondary", True)
         self.clear_button = QPushButton("Wyczyść")
-        self.clear_button.setIcon(svg_icon("trash", "#5E6C84", 16))
-        actions.addWidget(self.copy_button)
-        actions.addWidget(self.save_button)
-        actions.addWidget(self.clear_button)
+        self.clear_button.setProperty("flat", True)
+        for button in (self.copy_button, self.save_button, self.clear_button):
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            actions.addWidget(button)
         actions.addStretch(1)
         self.counter = QLabel("")
         self.counter.setProperty("helper", True)
@@ -685,13 +989,13 @@ class MainWindow(QMainWindow):
         # Prawa część: sterowanie i ustawienia
         side = QWidget()
         side_layout = QVBoxLayout(side)
-        side_layout.setContentsMargins(0, 0, 0, 0)
-        side_layout.setSpacing(12)
+        side_layout.setContentsMargins(0, 0, 6, 0)
+        side_layout.setSpacing(14)
 
         control = QFrame()
         control.setProperty("card", True)
         control_layout = QVBoxLayout(control)
-        control_layout.setContentsMargins(16, 10, 16, 14)
+        control_layout.setContentsMargins(18, 12, 18, 16)
         control_layout.setSpacing(4)
         self.big_mic = MicButton(76)
         control_layout.addWidget(self.big_mic, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -707,7 +1011,7 @@ class MainWindow(QMainWindow):
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.setVisible(False)
-        control_layout.addSpacing(4)
+        control_layout.addSpacing(6)
         control_layout.addWidget(self.progress)
         self.model_label = QLabel("")
         self.model_label.setProperty("helper", True)
@@ -718,123 +1022,129 @@ class MainWindow(QMainWindow):
 
         settings_card = QFrame()
         settings_card.setProperty("card", True)
-        form = QGridLayout(settings_card)
-        form.setContentsMargins(16, 14, 16, 14)
-        form.setHorizontalSpacing(8)
-        form.setVerticalSpacing(5)
-        row = 0
+        form = QVBoxLayout(settings_card)
+        form.setContentsMargins(18, 14, 18, 18)
+        form.setSpacing(6)
         heading = QLabel("Ustawienia")
         heading.setProperty("sectionTitle", True)
-        form.addWidget(heading, row, 0, 1, 2)
-        row += 1
+        form.addWidget(heading)
 
-        form.addWidget(field_label("Model rozpoznawania"), row, 0, 1, 2)
-        row += 1
+        def divider():
+            line = QFrame()
+            line.setProperty("divider", True)
+            form.addSpacing(8)
+            form.addWidget(line)
+
+        # --- Rozpoznawanie mowy
+        form.addWidget(group_label("Rozpoznawanie mowy"))
+        form.addWidget(field_label("Model"))
         self.model_combo = QComboBox()
         self.model_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.model_combo.setMaxVisibleItems(24)
         self._fill_models()
-        form.addWidget(self.model_combo, row, 0, 1, 2)
-        row += 1
+        form.addWidget(self.model_combo)
         self.device_combo = QComboBox()
         self.device_combo.addItem("Karta graficzna, jeśli dostępna", "auto")
         self.device_combo.addItem("Tylko procesor (CPU)", "cpu")
-        form.addWidget(self.device_combo, row, 0, 1, 2)
-        row += 1
+        form.addWidget(self.device_combo)
         self.cloud_hint = helper_label("")
         self.cloud_hint.setVisible(False)
-        form.addWidget(self.cloud_hint, row, 0, 1, 2)
-        row += 1
+        form.addWidget(self.cloud_hint)
         api_row = QHBoxLayout()
-        api_row.setSpacing(6)
+        api_row.setSpacing(8)
         self.keys_button = QPushButton("Klucze API…")
         self.keys_button.setToolTip("Klucze OpenAI, Groq, ElevenLabs, Deepgram, AssemblyAI")
-        self.custom_button = QPushButton("Własny model API…")
+        self.custom_button = QPushButton("Własny model…")
         self.custom_button.setToolTip("Wpisz ręcznie adres API, nazwę modelu i klucz")
         api_row.addWidget(self.keys_button)
         api_row.addWidget(self.custom_button)
-        form.addLayout(api_row, row, 0, 1, 2)
-        row += 1
+        form.addLayout(api_row)
 
-        form.addWidget(field_label("Mikrofon"), row, 0, 1, 2)
-        row += 1
-        self.mic_combo = QComboBox()
-        self.mic_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-        self.mic_refresh = QPushButton()
-        self.mic_refresh.setIcon(svg_icon("refresh", "#5E6C84", 16))
-        self.mic_refresh.setToolTip("Odśwież listę mikrofonów")
-        self.mic_refresh.setFixedWidth(34)
-        form.addWidget(self.mic_combo, row, 0)
-        form.addWidget(self.mic_refresh, row, 1)
-        row += 1
-
-        form.addWidget(field_label("Język"), row, 0, 1, 2)
-        row += 1
+        form.addWidget(field_label("Język"))
         self.language_combo = QComboBox()
         for code, label in LANGUAGES.items():
             self.language_combo.addItem(label, code)
-        form.addWidget(self.language_combo, row, 0, 1, 2)
-        row += 1
+        form.addWidget(self.language_combo)
 
-        form.addWidget(field_label("Skrót klawiszowy (działa w każdym oknie)"), row, 0, 1, 2)
-        row += 1
+        form.addWidget(field_label("Pauza kończąca wypowiedź"))
+        self.pause_combo = QComboBox()
+        self.pause_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        for seconds, label in PAUSE_OPTIONS:
+            self.pause_combo.addItem(label, seconds)
+        form.addWidget(self.pause_combo)
+
+        form.addWidget(field_label("Słownik — nazwy własne i terminy"))
+        self.hotwords_edit = QLineEdit()
+        self.hotwords_edit.setPlaceholderText("np. BAPO, WhisperX, Kraków")
+        form.addWidget(self.hotwords_edit)
+        divider()
+
+        # --- Dźwięk
+        form.addWidget(group_label("Źródło dźwięku"))
+        mic_row = QHBoxLayout()
+        mic_row.setSpacing(8)
+        self.mic_combo = QComboBox()
+        self.mic_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.mic_refresh = QPushButton()
+        self.mic_refresh.setToolTip("Odśwież listę mikrofonów")
+        self.mic_refresh.setFixedWidth(36)
+        mic_row.addWidget(self.mic_combo, 1)
+        mic_row.addWidget(self.mic_refresh)
+        form.addSpacing(4)
+        form.addLayout(mic_row)
+        divider()
+
+        # --- Skrót
+        form.addWidget(group_label("Skrót klawiszowy"))
         self.hotkey_combo = QComboBox()
         for combo in HOTKEYS:
             self.hotkey_combo.addItem(combo, combo)
-        form.addWidget(self.hotkey_combo, row, 0, 1, 2)
-        row += 1
+        form.addSpacing(4)
+        form.addWidget(self.hotkey_combo)
         mode_row = QHBoxLayout()
         mode_row.setSpacing(0)
         self.mode_toggle = QPushButton("Naciśnij: start / stop")
         self.mode_hold = QPushButton("Przytrzymaj i mów")
         self.mode_group = QButtonGroup(self)
-        for button in (self.mode_toggle, self.mode_hold):
+        for button, position in ((self.mode_toggle, "first"), (self.mode_hold, "last")):
             button.setCheckable(True)
-            button.setProperty("segment", True)
+            button.setProperty("segment", position)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
             self.mode_group.addButton(button)
             mode_row.addWidget(button)
-        form.addLayout(mode_row, row, 0, 1, 2)
-        row += 1
+        form.addLayout(mode_row)
+        self.hotkey_note = helper_label("Działa w każdym oknie, także gdy program jest zminimalizowany.")
+        form.addWidget(self.hotkey_note)
+        for widget in (self.hotkey_combo, self.mode_toggle, self.mode_hold):
+            widget.setEnabled(HOTKEY_SUPPORTED)
+        divider()
 
-        form.addWidget(field_label("Wpisywanie"), row, 0, 1, 2)
-        row += 1
+        # --- Wpisywanie
+        form.addWidget(group_label("Wpisywanie tekstu"))
         self.typing_check = QCheckBox("Wpisuj tekst do aktywnego okna")
-        form.addWidget(self.typing_check, row, 0, 1, 2)
-        row += 1
+        form.addWidget(self.typing_check)
         self.smooth_check = QCheckBox("Płynne pisanie (efekt pisania na żywo)")
-        form.addWidget(self.smooth_check, row, 0, 1, 2)
-        row += 1
+        form.addWidget(self.smooth_check)
         self.space_check = QCheckBox("Spacja przed pierwszym słowem sesji")
-        form.addWidget(self.space_check, row, 0, 1, 2)
-        row += 1
+        form.addWidget(self.space_check)
+        if not TYPING_SUPPORTED:
+            self.typing_check.setEnabled(False)
+            form.addWidget(helper_label("Na tym systemie program pokazuje tekst tylko w oknie podglądu."))
+        divider()
 
-        form.addWidget(field_label("Pauza kończąca wypowiedź"), row, 0, 1, 2)
-        row += 1
-        self.pause_combo = QComboBox()
-        for seconds, label in PAUSE_OPTIONS:
-            self.pause_combo.addItem(label, seconds)
-        form.addWidget(self.pause_combo, row, 0, 1, 2)
-        row += 1
-
-        form.addWidget(field_label("Słownik — nazwy własne i terminy"), row, 0, 1, 2)
-        row += 1
-        self.hotwords_edit = QLineEdit()
-        self.hotwords_edit.setPlaceholderText("np. BAPO, WhisperX, Kraków")
-        form.addWidget(self.hotwords_edit, row, 0, 1, 2)
-        row += 1
-
-        form.addWidget(field_label("Okna"), row, 0, 1, 2)
-        row += 1
+        # --- Program
+        form.addWidget(group_label("Program"))
         self.overlay_check = QCheckBox("Pływający pasek zawsze widoczny")
-        form.addWidget(self.overlay_check, row, 0, 1, 2)
-        row += 1
+        form.addWidget(self.overlay_check)
         self.minimize_check = QCheckBox("Chowaj to okno po starcie przyciskiem")
-        form.addWidget(self.minimize_check, row, 0, 1, 2)
-        row += 1
-        if not IS_WINDOWS:
-            note = helper_label("Wpisywanie do innych aplikacji i globalny skrót działają na Windows.")
-            form.addWidget(note, row, 0, 1, 2)
-            row += 1
+        form.addWidget(self.minimize_check)
+        self.update_check = QCheckBox("Sprawdzaj aktualizacje automatycznie")
+        form.addWidget(self.update_check)
+        form.addWidget(field_label("Motyw"))
+        self.theme_combo = QComboBox()
+        for mode, label in motyw.MODES.items():
+            self.theme_combo.addItem(label, mode)
+        form.addWidget(self.theme_combo)
 
         side_layout.addWidget(settings_card)
         side_layout.addStretch(1)
@@ -843,10 +1153,37 @@ class MainWindow(QMainWindow):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(side)
-        scroll.setFixedWidth(328)
+        scroll.setFixedWidth(372)
         body.addWidget(scroll)
         outer.addLayout(body, 1)
+
+        footer = QHBoxLayout()
+        footer.setSpacing(4)
+        self.version_label = QLabel(f"{APP_TITLE} {__version__}")
+        self.version_label.setProperty("link", True)
+        footer.addWidget(self.version_label)
+        footer.addStretch(1)
+        self.update_button = QPushButton("Sprawdź aktualizacje")
+        self.log_button = QPushButton("Otwórz folder dziennika")
+        for button in (self.update_button, self.log_button):
+            button.setProperty("flat", True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            footer.addWidget(button)
+        outer.addLayout(footer)
         self.setCentralWidget(root)
+
+    def _refresh_icons(self):
+        """Ikony mają kolor wpisany w obrazek — po zmianie motywu rysujemy je od nowa."""
+        accent = motyw.color("accent")
+        muted = motyw.color("text_muted")
+        self.copy_button.setIcon(svg_icon("copy", accent, 16))
+        self.save_button.setIcon(svg_icon("save", accent, 16))
+        self.clear_button.setIcon(svg_icon("trash", muted, 16))
+        self.mic_refresh.setIcon(svg_icon("refresh", muted, 16))
+        self.keys_button.setIcon(svg_icon("key", muted, 16))
+        self.custom_button.setIcon(svg_icon("plus", muted, 16))
+        for banner in (self.update_banner, self.gpu_banner, self.permission_banner):
+            banner.refresh_theme()
 
     def _build_tray(self):
         self.tray = None
@@ -861,8 +1198,11 @@ class MainWindow(QMainWindow):
         show.triggered.connect(self.show_window)
         quit_action = QAction("Zakończ", self)
         quit_action.triggered.connect(self.close)
+        check = QAction("Sprawdź aktualizacje…", self)
+        check.triggered.connect(lambda: (self.show_window(), self.check_updates(manual=True)))
         menu.addAction(self.tray_toggle)
         menu.addAction(show)
+        menu.addAction(check)
         menu.addSeparator()
         menu.addAction(quit_action)
         self.tray.setContextMenu(menu)
@@ -872,7 +1212,8 @@ class MainWindow(QMainWindow):
 
     def _tray_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            self.toggle_listening()
+            if not IS_MAC:   # na macOS kliknięcie ikony otwiera menu — nie może przy okazji włączać nagrywania
+                self.toggle_listening()
         elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             self.show_window()
 
@@ -936,6 +1277,8 @@ class MainWindow(QMainWindow):
         self.hotwords_edit.setText(s.value("hotwords", ""))
         self.overlay_check.setChecked(s.value("overlay_always", False, type=bool))
         self.minimize_check.setChecked(s.value("minimize_on_start", True, type=bool))
+        self.update_check.setChecked(s.value("auto_update", True, type=bool))
+        self._select(self.theme_combo, s.value("theme", "auto"))
         self._fill_microphones(s.value("microphone", ""))
         position = s.value("overlay_pos")
         self.overlay.place(position if isinstance(position, QPoint) else None)
@@ -958,6 +1301,8 @@ class MainWindow(QMainWindow):
         s.setValue("hotwords", self.hotwords_edit.text())
         s.setValue("overlay_always", self.overlay_check.isChecked())
         s.setValue("minimize_on_start", self.minimize_check.isChecked())
+        s.setValue("auto_update", self.update_check.isChecked())
+        s.setValue("theme", self.theme_combo.currentData() or "auto")
         s.setValue("microphone", self.mic_combo.currentData() or "")
         s.setValue("overlay_pos", self.overlay.pos())
         s.setValue("geometry", self.saveGeometry())
@@ -1012,7 +1357,11 @@ class MainWindow(QMainWindow):
         self.smooth_check.toggled.connect(self._apply_typing)
         self.space_check.toggled.connect(lambda value: setattr(self.session, "leading_space", value))
         self.overlay_check.toggled.connect(self._overlay_setting_changed)
+        self.theme_combo.currentIndexChanged.connect(self._theme_selected)
+        self.update_button.clicked.connect(lambda: self.check_updates(manual=True))
+        self.log_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_dir()))))
         for widget_signal in (
+            self.update_check.toggled, self.theme_combo.currentIndexChanged,
             self.model_combo.currentIndexChanged, self.device_combo.currentIndexChanged,
             self.language_combo.currentIndexChanged, self.hotkey_combo.currentIndexChanged,
             self.typing_check.toggled, self.smooth_check.toggled, self.space_check.toggled,
@@ -1071,7 +1420,7 @@ class MainWindow(QMainWindow):
     def _update_model_extras(self, key: str):
         cloud = is_cloud_key(key)
         self.device_combo.setVisible(not cloud)
-        self.custom_button.setText("Edytuj własny model…" if key.startswith("custom:") else "Własny model API…")
+        self.custom_button.setText("Edytuj model…" if key.startswith("custom:") else "Własny model…")
         if cloud:
             resolved = self.api.resolve(key)
             service = resolved.service if resolved else "usługi w chmurze"
@@ -1122,9 +1471,157 @@ class MainWindow(QMainWindow):
         enabled = self.typing_check.isChecked()
         self.typer.enabled = enabled
         self.typer.smooth = self.smooth_check.isChecked()
-        self.smooth_check.setEnabled(enabled and IS_WINDOWS)
-        self.space_check.setEnabled(enabled and IS_WINDOWS)
+        self.smooth_check.setEnabled(enabled and TYPING_SUPPORTED)
+        self.space_check.setEnabled(enabled and TYPING_SUPPORTED)
         self.overlay.set_typing(enabled)
+        self._update_permission_banner()
+
+    def _update_permission_banner(self):
+        """macOS: bez zgody „Dostępność” system po cichu odrzuca wpisywany tekst."""
+        needed = IS_MAC and self.typer.enabled and not typing_permission_granted()
+        if needed != self.permission_banner.isVisible():
+            self.permission_banner.setVisible(needed)
+
+    # -- motyw ---------------------------------------------------------------------
+
+    def _theme_selected(self):
+        motyw.set_mode(QApplication.instance(), self.theme_combo.currentData() or "auto")
+        self.apply_theme()
+
+    def apply_theme(self):
+        """Wywoływane po zmianie motywu w programie albo w systemie."""
+        motyw.apply(QApplication.instance(), self.theme_combo.currentData() or "auto")
+        self._refresh_icons()
+        self._render_transcript()
+        self.update()
+        self.overlay.update()
+
+    # -- aktualizacje ----------------------------------------------------------------
+
+    def _auto_check_updates(self):
+        last = float(self.settings.value("last_update_check", 0) or 0)
+        if time.time() - last >= updates.CHECK_INTERVAL_HOURS * 3600:
+            self.check_updates(manual=False)
+
+    def check_updates(self, manual: bool = False):
+        if self.update_task.running:
+            return
+        self._manual_update_check = manual
+        if manual:
+            self.update_button.setEnabled(False)
+            self.update_button.setText("Sprawdzam…")
+        self.update_task.start(lambda _progress, _cancel: updates.check())
+
+    def _reset_update_button(self):
+        self.update_button.setEnabled(True)
+        self.update_button.setText("Sprawdź aktualizacje")
+
+    def _on_update_checked(self, release):
+        self.settings.setValue("last_update_check", time.time())
+        self._reset_update_button()
+        manual, self._manual_update_check = self._manual_update_check, False
+        if release is None:
+            self.update_banner.setVisible(False)
+            if manual:
+                QMessageBox.information(self, APP_TITLE, f"Masz najnowszą wersję ({__version__}).")
+            return
+        self.pending_release = release
+        skipped = str(self.settings.value("update_skipped", ""))
+        self.update_banner.set_message(
+            f"Dostępna jest wersja {release.version}",
+            f"Masz wersję {__version__}. Aktualizacja zajmie chwilę, ustawienia zostają bez zmian.",
+        )
+        if manual:
+            self.update_banner.setVisible(True)
+            self._open_update_dialog()
+        elif skipped != release.version:
+            self.update_banner.setVisible(True)
+
+    def _on_update_check_failed(self, message: str):
+        self._reset_update_button()
+        manual, self._manual_update_check = self._manual_update_check, False
+        if manual:
+            QMessageBox.warning(self, APP_TITLE, message)
+
+    def _dismiss_update_banner(self):
+        if self.pending_release is not None:
+            self.settings.setValue("update_skipped", self.pending_release.version)
+        self.update_banner.setVisible(False)
+
+    def _open_update_dialog(self):
+        if self.pending_release is None:
+            return
+        if self.engine.listening:
+            self.stop_listening()
+        dialog = UpdateDialog(self.pending_release, self)
+        dialog.exec()
+        if dialog.installing:
+            self.quitting_for_update = True
+            self.close()
+
+    # -- przyspieszenie kartą graficzną ----------------------------------------------
+
+    def _update_gpu_banner(self):
+        """Karta NVIDIA bez bibliotek CUDA: proponujemy ich pobranie (jednorazowo)."""
+        if self.gpu_task.running:
+            return
+        info = self.model_info
+        wanted = (
+            info is not None and info.device == "cpu"
+            and self.device_combo.currentData() == "auto"
+            and not self.settings.value("gpu_banner_dismissed", False, type=bool)
+            and gpu_acceleration_state() == "missing"
+        )
+        if wanted:
+            self.gpu_banner.clear_progress()
+            self.gpu_banner.set_message(
+                "Masz kartę NVIDIA — włącz przyspieszenie",
+                "Rozpoznawanie mowy będzie kilka razy szybsze. Program pobierze biblioteki NVIDIA "
+                f"({gpu_pack.APPROX_SIZE}, jednorazowo). Teraz model działa na procesorze.",
+            )
+            self.gpu_button.setVisible(True)
+            self.gpu_button.setText(f"Pobierz ({gpu_pack.APPROX_SIZE})")
+            self.gpu_later.setText("Nie teraz")
+        self.gpu_banner.setVisible(wanted)
+
+    def _dismiss_gpu_banner(self):
+        if self.gpu_task.running:
+            self.gpu_task.cancel()
+            return
+        self.settings.setValue("gpu_banner_dismissed", True)
+        self.gpu_banner.setVisible(False)
+
+    def _install_gpu_pack(self):
+        self.gpu_button.setVisible(False)
+        self.gpu_later.setText("Anuluj")
+        self.gpu_banner.set_message("Pobieranie bibliotek NVIDIA…", "Możesz w tym czasie normalnie dyktować.")
+        self.gpu_banner.set_progress(0, 0)
+        self.gpu_task.start(lambda progress, cancel: gpu_pack.install(progress, cancel))
+
+    def _on_gpu_progress(self, done: float, total: float):
+        self.gpu_banner.set_progress(done, total)
+        if total > 0:
+            self.gpu_banner.set_message(
+                "Pobieranie bibliotek NVIDIA…", f"{format_size(done)} z {format_size(total)} — możesz normalnie dyktować."
+            )
+
+    def _on_gpu_installed(self, _directory):
+        self.gpu_banner.setVisible(False)
+        reset_gpu_libraries()
+        if self.engine.listening:
+            # Nie przerywamy dyktowania — karta zostanie użyta przy następnym ładowaniu modelu.
+            self.model_label.setText("Przyspieszenie GPU gotowe — zadziała po zakończeniu dyktowania.")
+            self._gpu_reload_pending = True
+            return
+        if not is_cloud_key(self._current_model):
+            self._load_model()
+
+    def _on_gpu_failed(self, message: str):
+        self.gpu_banner.clear_progress()
+        self.gpu_banner.set_message("Nie udało się pobrać bibliotek NVIDIA", message)
+        self.gpu_button.setVisible(True)
+        self.gpu_button.setText("Spróbuj ponownie")
+        self.gpu_later.setText("Nie teraz")
 
     def _overlay_typing(self, enabled: bool):
         self.typing_check.setChecked(enabled)
@@ -1136,7 +1633,7 @@ class MainWindow(QMainWindow):
         combo = self.hotkey_combo.currentData() or DEFAULT_HOTKEY
         hold = self.mode_hold.isChecked()
         self.settings.setValue("hold_mode", hold)
-        if not HotkeyListener.available:
+        if not HOTKEY_SUPPORTED:
             self.hotkey_hint.setText("Kliknij mikrofon, aby zacząć.")
             return
         listener = HotkeyListener(combo, self.bridge.hotkey_pressed.emit, self.bridge.hotkey_released.emit, hold)
@@ -1212,7 +1709,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self, APP_TITLE,
                 "Brakuje biblioteki mikrofonu „sounddevice”.\n\n"
-                "Uruchom program plikiem „Uruchom BAPO-dyktowanie.bat” — zainstaluje ją automatycznie.",
+                "Zainstaluj program ponownie albo, przy uruchamianiu ze źródeł, wykonaj:\n"
+                "pip install -r requirements.txt",
             )
             return
         except Exception as exc:
@@ -1226,7 +1724,7 @@ class MainWindow(QMainWindow):
             self.overlay.hint.setToolTip("Trwa transkrypcja plików — dyktowanie może działać wolniej.")
         else:
             self.overlay.hint.setText("")
-        if self.started_from_window and self.minimize_check.isChecked() and IS_WINDOWS:
+        if self.started_from_window and self.minimize_check.isChecked() and TYPING_SUPPORTED:
             self.showMinimized()
         self.started_from_window = False
         self._render_transcript()
@@ -1268,6 +1766,7 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(False)
         self.model_label.setText(f"{info.label} · wykrywanie mowy: {info.vad}")
         self._update_controls()
+        self._update_gpu_banner()
 
     def _on_failed(self, text: str):
         if self.model_state == "loading":
@@ -1312,6 +1811,10 @@ class MainWindow(QMainWindow):
         self._update_controls()
         if not active:
             self.hide_overlay_timer.start(2500)
+            if self._gpu_reload_pending:
+                self._gpu_reload_pending = False
+                if not is_cloud_key(self._current_model):
+                    QTimer.singleShot(0, self._load_model)
 
     def _update_controls(self):
         listening = self.engine.listening
@@ -1366,13 +1869,14 @@ class MainWindow(QMainWindow):
             self.overlay.wave.push(level, listening)
 
     def _tick_window(self):
-        if not IS_WINDOWS:
-            self.target_label.setText("Okno docelowe: tylko podgląd (wpisywanie działa na Windows)")
+        if not TYPING_SUPPORTED:
+            self.target_label.setText("Pisanie do: tylko podgląd w tym oknie")
             return
+        self._update_permission_banner()
         info = foreground_window()
         if info is None or info.own:
             if self.engine.listening and self.typer.enabled:
-                self.overlay.target.setText("→ kliknij w okno, do którego mam pisać")
+                self.overlay.target.setText("→ kliknij tam, gdzie mam pisać")
             return
         warning = ""
         if info.elevated and not self.own_elevated:
@@ -1380,25 +1884,26 @@ class MainWindow(QMainWindow):
         prefix = "→ " if self.typer.enabled else "⏸ "
         self.overlay.target.setText(prefix + info.label + warning)
         self.overlay.target.setToolTip(info.title)
-        self.target_label.setText(f"Okno docelowe: {info.label}{warning}")
+        self.target_label.setText(f"Pisanie do: {info.label}{warning}")
 
     def _render_transcript(self):
         stable, tentative = self.session.split()
         if not SHOW_TENTATIVE:
             tentative = ""
+        faint = motyw.color("text_faint")
         parts = [f'<p style="margin:0 0 10px 0">{html.escape(text)}</p>' for text in self.archive]
-        current = html.escape(stable) + f'<span style="color:#8D9AB0">{html.escape(tentative)}</span>'
+        current = html.escape(stable) + f'<span style="color:{faint}">{html.escape(tentative)}</span>'
         if stable or tentative:
             parts.append(f'<p style="margin:0">{current}</p>')
         if not parts:
             if is_cloud_key(self._current_model):
                 parts.append(
-                    '<p style="color:#8D9AB0">Tu zobaczysz tekst. Model w chmurze rozpoznaje całą '
+                    f'<p style="color:{faint}">Tu zobaczysz tekst. Model w chmurze rozpoznaje całą '
                     'wypowiedź naraz — tekst pojawia się po krótkiej pauzie w mówieniu.</p>'
                 )
             else:
                 parts.append(
-                    '<p style="color:#8D9AB0">Tu zobaczysz tekst w trakcie mówienia. '
+                    f'<p style="color:{faint}">Tu zobaczysz tekst w trakcie mówienia. '
                     'Pokazywany jest tylko tekst ostateczny.</p>'
                 )
         bar = self.transcript.verticalScrollBar()
@@ -1437,6 +1942,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._save_settings()
+        self.gpu_task.cancel()
+        self.update_task.cancel()
         if self.hotkey is not None:
             self.hotkey.stop()
         self.typer.stop()
@@ -1448,108 +1955,39 @@ class MainWindow(QMainWindow):
         QApplication.quit()
 
 
-STYLE = """
-QWidget { color: #101936; font-size: 11px; }
-QMainWindow, QScrollArea, QScrollArea > QWidget > QWidget { background: #F6F9FD; }
-QLabel[pageTitle="true"] { font-size: 20px; font-weight: 700; color: #0A1540; }
-QLabel[pageSubtitle="true"] { font-size: 12px; color: #65738A; }
-QLabel[cardTitle="true"] { font-size: 15px; font-weight: 700; color: #0A1540; }
-QLabel[sectionTitle="true"] { font-size: 13px; font-weight: 700; color: #0A1540; padding-bottom: 2px; }
-QLabel[controlTitle="true"] { font-size: 13px; font-weight: 700; color: #0A1540; }
-QLabel[fieldLabel="true"] { font-size: 11px; font-weight: 600; color: #14203B; padding-top: 6px; }
-QLabel[helper="true"] { font-size: 10px; color: #6D7A91; }
-QLabel[targetLabel="true"] { font-size: 11px; color: #4E5E78; background: #F2F6FB; border-radius: 6px; padding: 5px 8px; }
-QLabel[pill] { border-radius: 11px; padding: 4px 11px; font-weight: 600; }
-QLabel[pill="busy"] { background: #EEF2F7; color: #4E5E78; }
-QLabel[pill="ready"] { background: #E7F5EE; color: #19744A; }
-QLabel[pill="live"] { background: #FDECEC; color: #B4232A; }
-QLabel[pill="error"] { background: #FDECEC; color: #B4232A; }
-QFrame[card="true"] { background: #FFFFFF; border: 1px solid #DCE5F0; border-radius: 11px; }
-QTextEdit[transcript="true"] {
-    background: #FBFCFE; border: 1px solid #E3EAF3; border-radius: 8px; padding: 10px;
-    font-size: 14px; color: #101936; selection-background-color: #087BF0;
-}
-QLineEdit, QComboBox {
-    min-height: 28px; padding: 0 8px; background: #FFFFFF;
-    border: 1px solid #CCD8E7; border-radius: 6px; selection-background-color: #087BF0;
-}
-QLineEdit:focus, QComboBox:focus { border: 1px solid #087BF0; }
-QComboBox::drop-down { border: 0; width: 22px; }
-QComboBox QAbstractItemView { background: #FFFFFF; border: 1px solid #CCD8E7; selection-background-color: #EAF4FF; selection-color: #0A1540; }
-QPushButton {
-    min-height: 28px; padding: 0 12px; border: 1px solid #CFDAE7;
-    border-radius: 6px; background: #FFFFFF; font-weight: 600;
-}
-QPushButton:hover { background: #F0F6FD; border-color: #9FBDD9; }
-QPushButton:disabled { color: #9DA8B7; background: #EFF2F6; border-color: #E0E5EC; }
-QPushButton[primary="true"] { color: white; background: #087BF0; border-color: #087BF0; }
-QPushButton[primary="true"]:hover { background: #0868CC; }
-QDialog { background: #F6F9FD; }
-QPushButton[secondary="true"] { color: #087BF0; border-color: #91C6FA; background: #F8FBFF; }
-QPushButton[segment="true"] { border-radius: 0; background: #F8FAFD; border-color: #D2DCE8; padding: 0 6px; font-size: 10px; }
-QPushButton[segment="true"]:checked { background: #087BF0; color: white; border-color: #087BF0; }
-QCheckBox { spacing: 6px; padding: 2px 0; }
-QCheckBox::indicator { width: 15px; height: 15px; }
-QProgressBar { min-height: 5px; max-height: 5px; border: 0; border-radius: 3px; background: #E4EAF2; text-align: center; color: transparent; }
-QProgressBar::chunk { border-radius: 3px; background: #087BF0; }
-QScrollBar:vertical { width: 8px; background: transparent; margin: 1px; }
-QScrollBar::handle:vertical { background: #C5D0DD; border-radius: 4px; min-height: 21px; }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QLabel[overlayStatus="true"] { color: #FFFFFF; font-size: 11px; font-weight: 700; background: transparent; }
-QLabel[overlayTarget="true"] { color: #9FB3D1; font-size: 10px; background: transparent; }
-QLabel[overlayText="true"] { color: #FFFFFF; font-size: 14px; background: transparent; }
-QLabel[overlayHint="true"] { color: #F5B14C; font-size: 9px; background: transparent; }
-QPushButton[overlayTool="true"] { min-height: 0; padding: 0; border: 0; border-radius: 15px; background: transparent; }
-QPushButton[overlayTool="true"]:hover { background: rgba(255, 255, 255, 28); }
-QPushButton[overlayTool="true"]:checked { background: transparent; }
-QPushButton[overlayTool="true"][paused="true"] { background: rgba(245, 177, 76, 60); }
-QToolTip { color: #101936; background: #FFFFFF; border: 1px solid #CCD8E7; padding: 4px; }
-"""
-
-
 def run(argv=None) -> int:
     os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
     if IS_WINDOWS:
         try:
             import ctypes
 
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("pl.bapo.dyktowanie")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
         except (AttributeError, OSError):
             pass
     app = QApplication(list(argv or sys.argv))
     app.setApplicationName(APP_TITLE)
-    app.setOrganizationName("BAPO")
+    app.setApplicationDisplayName(APP_TITLE)
+    app.setApplicationVersion(__version__)
+    app.setOrganizationName(ORGANIZATION)
     app.setQuitOnLastWindowClosed(False)
     app.setWindowIcon(app_icon())
     app.setStyle("Fusion")
-    palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window, QColor("#F6F9FD"))
-    palette.setColor(QPalette.ColorRole.WindowText, QColor("#101936"))
-    palette.setColor(QPalette.ColorRole.Base, QColor("#FFFFFF"))
-    palette.setColor(QPalette.ColorRole.Text, QColor("#101936"))
-    palette.setColor(QPalette.ColorRole.Button, QColor("#FFFFFF"))
-    palette.setColor(QPalette.ColorRole.ButtonText, QColor("#101936"))
-    palette.setColor(QPalette.ColorRole.Highlight, QColor(BLUE))
-    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#FFFFFF"))
-    app.setPalette(palette)
-    if IS_WINDOWS:
-        font = QFont("Segoe UI", 8)
-    else:
-        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
-        font.setPointSize(8)
-    app.setFont(font)
-    app.setStyleSheet(STYLE)
+    app.setFont(motyw.app_font())
+    mode = str(app_settings().value("theme", "auto"))
+    motyw.set_mode(app, mode if mode in motyw.MODES else "auto")
 
     from PySide6.QtCore import QLockFile, QStandardPaths
 
     lock_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.TempLocation)
     lock = QLockFile(str(Path(lock_dir) / "bapo-dyktowanie.lock"))
     lock.setStaleLockTime(0)
-    if not lock.tryLock(100):
-        QMessageBox.information(None, APP_TITLE, "BAPO-dyktowanie już działa — znajdziesz je w zasobniku obok zegara.")
+    # Po aktualizacji nowa wersja startuje, zanim stara zdąży się zamknąć — chwilę czekamy.
+    if not lock.tryLock(8000 if "--po-aktualizacji" in sys.argv else 100):
+        QMessageBox.information(None, APP_TITLE, f"BAPO-dyktowanie już działa — znajdziesz je {TRAY_HINT}.")
         return 0
 
     window = MainWindow()
+    app.styleHints().colorSchemeChanged.connect(lambda _scheme: window.apply_theme())
     window.show()
     code = app.exec()
     lock.unlock()

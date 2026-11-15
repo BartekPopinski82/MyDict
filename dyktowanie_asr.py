@@ -18,7 +18,9 @@ from pathlib import Path
 
 import numpy as np
 
+import dyktowanie_gpu_pakiet as gpu_pack
 from dyktowanie_api import ApiError, Request, ResolvedModel, clean_text, encode_wav, transcribe
+from dyktowanie_app import config_file
 from dyktowanie_core import (
     SAMPLE_RATE,
     LiveStreamer,
@@ -65,7 +67,7 @@ class LiveSettings:
 
 # Ustawienia dekodera do zmiany bez edycji kodu: plik obok programu, np. {"final_beam": 5}.
 # Brak pliku albo klucza = wartość domyślna z LiveSettings. Czytany przy starcie programu.
-SETTINGS_FILE = Path(__file__).resolve().parent / "ustawienia_asr.json"
+SETTINGS_FILE = config_file("ustawienia_asr.json")
 SETTINGS_KEYS = {"live_beam": (1, 10), "final_beam": (1, 10)}   # klucz → dozwolony zakres
 
 
@@ -104,10 +106,10 @@ _GPU_PREPARED = None
 def prepare_gpu_libraries() -> bool:
     """Udostępnia biblioteki cuBLAS/cuDNN dla CTranslate2.
 
-    WhisperX działa na GPU, bo wcześniej importuje PyTorcha, który ładuje swoje
-    biblioteki CUDA z katalogu torch/lib. My nie potrzebujemy całego PyTorcha,
-    więc dokładnie te same pliki DLL ładujemy sami. Bez tego CTranslate2 potrafi
-    zakończyć proces bez komunikatu, gdy nie znajdzie cuDNN.
+    Szukamy ich kolejno: w pakiecie GPU pobranym przez program (katalog danych
+    użytkownika), w PyTorchu i w paczkach ``nvidia-*`` — te dwa ostatnie tylko
+    przy uruchomieniu ze źródeł. Pliki DLL ładujemy sami, bo bez tego CTranslate2
+    potrafi zakończyć proces bez komunikatu, gdy nie znajdzie cuDNN.
     """
     global _GPU_PREPARED
     if _GPU_PREPARED is not None:
@@ -117,8 +119,11 @@ def prepare_gpu_libraries() -> bool:
         return True
     import ctypes
 
-    directories = []
-    spec = importlib.util.find_spec("torch")
+    directories = list(gpu_pack.library_dirs())
+    try:
+        spec = importlib.util.find_spec("torch")
+    except (ImportError, ValueError):
+        spec = None
     if spec and spec.origin:
         directories.append(Path(spec.origin).parent / "lib")
     try:
@@ -150,6 +155,24 @@ def prepare_gpu_libraries() -> bool:
     _GPU_PREPARED = found["cublas"] and found["cudnn"]
     log.info("Biblioteki CUDA: %s (katalogi: %s)", found, [str(d) for d in directories])
     return _GPU_PREPARED
+
+
+def reset_gpu_libraries():
+    """Po doinstalowaniu pakietu GPU: następne ładowanie modelu sprawdzi biblioteki od nowa."""
+    global _GPU_PREPARED
+    _GPU_PREPARED = None
+
+
+def gpu_acceleration_state() -> str:
+    """Stan przyspieszenia kartą graficzną — do podpowiedzi w interfejsie.
+
+    ``ready`` — karta NVIDIA i komplet bibliotek; ``missing`` — karta jest, ale
+    brakuje bibliotek (można je pobrać); ``none`` — brak karty NVIDIA albo system,
+    na którym model i tak liczy procesor.
+    """
+    if not gpu_pack.supported() or cuda_device_count() <= 0:
+        return "none"
+    return "ready" if prepare_gpu_libraries() else "missing"
 
 
 def cuda_device_count() -> int:

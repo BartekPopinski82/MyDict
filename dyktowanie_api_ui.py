@@ -20,10 +20,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import dyktowanie_motyw as motyw
 from dyktowanie_api import (
     API_KINDS,
     CLOUD_MODELS,
     DEFAULT_BASE_URLS,
+    IS_MAC,
     IS_WINDOWS,
     KEY_SOURCES,
     PROVIDERS,
@@ -31,6 +33,7 @@ from dyktowanie_api import (
     ResolvedModel,
     check_key,
     find_key,
+    forget_secret,
     normalize_base_url,
     protect_secret,
     provider_endpoint,
@@ -40,7 +43,6 @@ from dyktowanie_api import (
 )
 
 
-BLUE = "#087BF0"
 
 
 class ApiStore:
@@ -62,6 +64,10 @@ class ApiStore:
 
     def set_key(self, provider_id: str, key: str):
         key = (key or "").strip()
+        previous = str(self.settings.value(f"api_keys/{provider_id}", "") or "")
+        if key and key == unprotect_secret(previous):
+            return
+        forget_secret(previous)
         if key:
             self.settings.setValue(f"api_keys/{provider_id}", protect_secret(key))
         else:
@@ -194,9 +200,10 @@ class ApiKeysDialog(QDialog):
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
+        link_color = motyw.color("accent")
         for index, provider in enumerate(PROVIDERS.values()):
             name = QLabel(
-                f'<b>{provider.name}</b><br><a href="{provider.key_url}" style="color:{BLUE}">Utwórz klucz ↗</a>'
+                f'<b>{provider.name}</b><br><a href="{provider.key_url}" style="color:{link_color}">Utwórz klucz ↗</a>'
             )
             name.setTextFormat(Qt.TextFormat.RichText)
             name.setOpenExternalLinks(True)
@@ -218,7 +225,7 @@ class ApiKeysDialog(QDialog):
             endpoint_label.setProperty("helper", True)
             endpoint_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             endpoint = QLineEdit(store.saved_endpoint(provider.id))
-            endpoint.setPlaceholderText(provider.base_url)
+            endpoint.setPlaceholderText(f"Endpoint: {provider.base_url}")
             endpoint.setToolTip(provider.endpoint_note or f"Domyślnie: {provider.base_url}")
             reset = QPushButton("Domyślny")
             reset.setProperty("secondary", True)
@@ -243,10 +250,12 @@ class ApiKeysDialog(QDialog):
         grid.setColumnStretch(4, 2)
         layout.addLayout(grid)
 
-        storage = (
-            "Klucze są szyfrowane Twoim kontem Windows (DPAPI) — inne konto ani komputer ich nie odczyta."
-            if IS_WINDOWS else "Klucze są zapisane w ustawieniach programu tylko dla Twojego konta."
-        )
+        if IS_WINDOWS:
+            storage = "Klucze są szyfrowane Twoim kontem Windows (DPAPI) — inne konto ani komputer ich nie odczyta."
+        elif IS_MAC:
+            storage = "Klucze są przechowywane w pęku kluczy macOS — poza plikami ustawień programu."
+        else:
+            storage = "Klucze są zapisane w ustawieniach programu tylko dla Twojego konta."
         layout.addWidget(_helper(storage))
 
         buttons = QHBoxLayout()
@@ -263,7 +272,7 @@ class ApiKeysDialog(QDialog):
 
         if focus_provider in self.rows:
             edit, status, _check = self.rows[focus_provider]
-            status.setText(f"<span style='color:#B4232A'>Wybrany model wymaga klucza {PROVIDERS[focus_provider].name}.</span>")
+            status.setText(f"<span style='color:{motyw.color('danger_text')}'>Wybrany model wymaga klucza {PROVIDERS[focus_provider].name}.</span>")
             edit.setFocus()
 
     def _check(self, provider_id: str):
@@ -283,7 +292,7 @@ class ApiKeysDialog(QDialog):
             return
         _edit, status, button = self.rows[provider_id]
         button.setEnabled(True)
-        color = "#18794E" if ok else "#B4232A"
+        color = motyw.color("success_text" if ok else "danger_text")
         status.setText(f"<span style='color:{color}'>{message}</span>")
 
     def _save(self):
@@ -476,7 +485,7 @@ class CustomModelDialog(QDialog):
 
     def _checked(self, _tag: str, ok: bool, message: str):
         self.check_button.setEnabled(True)
-        color = "#18794E" if ok else "#B4232A"
+        color = motyw.color("success_text" if ok else "danger_text")
         extra = "" if ok else "<br>Model możesz zapisać mimo to — błąd zobaczysz przy pierwszej wypowiedzi."
         self.status.setText(f"<span style='color:{color}'>{message}</span>{extra}")
 
@@ -484,18 +493,18 @@ class CustomModelDialog(QDialog):
         model_name = self.model_combo.currentText().strip()
         url = normalize_base_url(self.url_edit.text())
         if not url:
-            self.status.setText("<span style='color:#B4232A'>Wpisz adres API.</span>")
+            self.status.setText(f"<span style='color:{motyw.color('danger_text')}'>Wpisz adres API.</span>")
             self.url_edit.setFocus()
             return
         if not model_name:
-            self.status.setText("<span style='color:#B4232A'>Wpisz nazwę modelu.</span>")
+            self.status.setText(f"<span style='color:{motyw.color('danger_text')}'>Wpisz nazwę modelu.</span>")
             self.model_combo.setFocus()
             return
         key = self.key_edit.text().strip()
         provider_id = self._provider()
         if not key and not self._effective_key() and (provider_id or self._kind() != "openai"):
             service = PROVIDERS[provider_id].name if provider_id else "Ten rodzaj API"
-            self.status.setText(f"<span style='color:#B4232A'>{service} wymaga klucza API — wklej go powyżej.</span>")
+            self.status.setText(f"<span style='color:{motyw.color('danger_text')}'>{service} wymaga klucza API — wklej go powyżej.</span>")
             self.key_edit.setFocus()
             return
         self.result_model = CustomModel(

@@ -33,9 +33,11 @@ from pathlib import Path
 import numpy as np
 
 
+from dyktowanie_app import APP_NAME, IS_MAC, __version__, config_file, data_dir, resource_dir
+
 IS_WINDOWS = sys.platform.startswith("win")
-HERE = Path(__file__).resolve().parent
-USER_AGENT = "BAPO-dyktowanie/1.1"
+HERE = resource_dir()
+USER_AGENT = f"{APP_NAME}/{__version__}"
 REQUEST_TIMEOUT = 45.0
 
 
@@ -98,7 +100,7 @@ class CloudModel:
     stream: bool | None = None     # None = jak dostawca
 
 
-CATALOG_FILE = HERE / "dostawcy.json"
+CATALOG_FILE = config_file("dostawcy.json")
 
 
 def _pairs(value) -> tuple:
@@ -275,8 +277,29 @@ def _dpapi(data: bytes, protect: bool, entropy_bytes: bytes = ENTROPY) -> bytes:
         kernel32.LocalFree(data_out.pbData)
 
 
+KEYCHAIN_SERVICE = APP_NAME
+SECRETS_PROTECTED = IS_WINDOWS or IS_MAC   # czy klucze trafiają do magazynu systemowego
+
+
+def _keychain():
+    """Pęk kluczy macOS (biblioteka keyring) albo None, gdy niedostępny."""
+    if not IS_MAC:
+        return None
+    try:
+        import keyring
+
+        return keyring
+    except Exception:
+        return None
+
+
 def protect_secret(secret: str) -> str:
-    """Szyfruje klucz kontem Windows (DPAPI); na innych systemach tylko koduje."""
+    """Zabezpiecza klucz API i zwraca napis do zapisania w ustawieniach.
+
+    Windows: szyfrowanie kontem użytkownika (DPAPI). macOS: klucz trafia do pęku
+    kluczy, a w ustawieniach zostaje tylko jego identyfikator. Gdzie indziej —
+    samo kodowanie.
+    """
     secret = (secret or "").strip()
     if not secret:
         return ""
@@ -286,12 +309,23 @@ def protect_secret(secret: str) -> str:
             return "dpapi:" + base64.b64encode(_dpapi(raw, True)).decode("ascii")
         except Exception:
             pass
+    keychain = _keychain()
+    if keychain is not None:
+        try:
+            account = uuid.uuid4().hex
+            keychain.set_password(KEYCHAIN_SERVICE, account, secret)
+            return "keychain:" + account
+        except Exception:
+            pass
     return "plain:" + base64.b64encode(raw).decode("ascii")
 
 
 def unprotect_secret(stored: str, entropy: bytes = ENTROPY) -> str:
     try:
         kind, _, payload = (stored or "").partition(":")
+        if kind == "keychain":
+            keychain = _keychain()
+            return (keychain.get_password(KEYCHAIN_SERVICE, payload) or "") if keychain else ""
         raw = base64.b64decode(payload.encode("ascii"))
         if kind == "dpapi":
             return _dpapi(raw, False, entropy).decode("utf-8") if IS_WINDOWS else ""
@@ -302,10 +336,22 @@ def unprotect_secret(stored: str, entropy: bytes = ENTROPY) -> str:
     return ""
 
 
+def forget_secret(stored: str):
+    """Usuwa klucz z magazynu systemowego, gdy znika z ustawień (macOS)."""
+    kind, _, payload = (stored or "").partition(":")
+    keychain = _keychain() if kind == "keychain" else None
+    if keychain is not None:
+        try:
+            keychain.delete_password(KEYCHAIN_SERVICE, payload)
+        except Exception:
+            pass
+
+
 def _secrets_files():
     """secrets.env obok programu, w folderze Whisperer oraz w BAPO-transcript Lite."""
     seen = set()
-    for directory in (HERE, HERE.parent, HERE.parent.parent / "Whisperer-lite", Path.cwd()):
+    source = Path(__file__).resolve().parent
+    for directory in (data_dir(), source, source.parent, source.parent.parent / "Whisperer-lite", Path.cwd()):
         for name in ("secrets.env", ".env"):
             path = directory / name
             try:

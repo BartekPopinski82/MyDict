@@ -1,0 +1,96 @@
+name: Wydanie
+
+# Wypchnięcie znacznika „vX.Y.Z” buduje instalatory dla Windows i macOS i publikuje
+# je jako wydanie GitHub. Z tych wydań program pobiera swoje aktualizacje.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Budowanie (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Windows, os: windows-latest }
+          - { name: macOS, os: macos-latest }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Biblioteki
+        run: python -m pip install -r requirements-build.txt
+
+      - name: Znacznik zgodny z wersją programu
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: python packaging/wydanie.py sprawdz "${GITHUB_REF_NAME}"
+
+      - name: Testy
+        # Na macOS testy są informacyjne (pełną bramką jest tam autotest zbudowanej aplikacji).
+        continue-on-error: ${{ matrix.name == 'macOS' }}
+        run: python -m pytest tests -q
+
+      - name: Inno Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue) -and
+              -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+          }
+
+      - name: Budowanie i autotest aplikacji
+        run: python packaging/build.py
+
+      # Brak instalatora = brak plików = błąd (if-no-files-found), więc wydanie nie wyjdzie niekompletne.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wydanie-${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            dist/*-Windows-Setup.exe
+            dist/*-macOS-*.zip
+            dist/*-macOS-*.dmg
+            dist/*.sha256
+
+  publish:
+    name: Publikacja wydania
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Sumy kontrolne i opis zmian
+        run: |
+          cat dist/*.sha256 > dist/SHA256SUMS.txt
+          rm dist/*.sha256
+          cat dist/SHA256SUMS.txt
+          python3 packaging/wydanie.py notatki "${GITHUB_REF_NAME}" > notatki.md
+          cat notatki.md
+
+      - name: Wydanie GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "BAPO-dyktowanie ${GITHUB_REF_NAME#v}" \
+            --notes-file notatki.md \
+            --verify-tag

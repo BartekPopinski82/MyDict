@@ -1,0 +1,5 @@
+# Narzędzia do budowania instalatorów i do testów (niepotrzebne do działania programu).
+-r requirements.txt
+pyinstaller>=6.11
+pillow>=10
+pytest>=8

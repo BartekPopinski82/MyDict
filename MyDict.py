@@ -164,6 +164,11 @@ def main():
     except Exception:
         logging.getLogger("dyktowanie").warning("Pomiar latencji niedostępny", exc_info=True)
     try:
+        if "--przygotuj" in sys.argv:
+            # Wywołanie z instalatora: pobierz składniki (karta graficzna, model) i zakończ.
+            from dyktowanie_przygotowanie import run_setup
+
+            return run_setup(sys.argv)
         from dyktowanie_ui import run
     except ImportError as exc:
         logging.getLogger("dyktowanie").critical("Brak bibliotek", exc_info=True)

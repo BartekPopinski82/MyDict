@@ -70,6 +70,7 @@ def main() -> int:
     ui.HotkeyListener.stop = lambda self: None
     ui.Microphone.devices = staticmethod(lambda: ["Mikrofon (USB Audio)", "Zestaw słuchawkowy"])
     ui.gpu_acceleration_state = lambda: "ready"
+    ui.sprzet.detect = lambda: ui.sprzet.Hardware(("NVIDIA GeForce RTX 4060",), "nvidia", True, 8192)
     ui.foreground_window = lambda: None   # zrzut nie może pokazać tytułu prywatnego okna
     ui.updates.cleanup = lambda: None
     ui.MainWindow._build_tray = lambda self: setattr(self, "tray", None)
@@ -127,6 +128,20 @@ def main() -> int:
         app.processEvents()
         keys.grab().save(str(out / f"klucze-{mode}.png"))
         keys.close()
+
+        import dyktowanie_przygotowanie as przygotowanie
+
+        setup = przygotowanie.SetupWindow(
+            [("gpu", "Obsługa karty graficznej (ok. 1 GB)"), ("model:turbo", "Model rozpoznawania mowy (1,6 GB)")],
+            ui.sprzet.detect(),
+        )
+        setup.task.start = lambda work: None          # zrzut bez pobierania
+        setup.show()
+        setup._next()
+        setup._on_progress(420 * 1024 ** 2, 1020 * 1024 ** 2)
+        app.processEvents()
+        setup.grab().save(str(out / f"instalacja-{mode}.png"))
+        setup.done(0)
 
         overlay = window.overlay
         overlay.set_text("To jest tekst zatwierdzony, ", "a to jeszcze się zmienia")

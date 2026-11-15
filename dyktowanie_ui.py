@@ -53,6 +53,7 @@ from PySide6.QtWidgets import (
 import dyktowanie_aktualizacje as updates
 import dyktowanie_gpu_pakiet as gpu_pack
 import dyktowanie_motyw as motyw
+import dyktowanie_sprzet as sprzet
 from dyktowanie_app import (
     APP_ID,
     APP_NAME,
@@ -101,7 +102,6 @@ from dyktowanie_pobieranie import Cancelled, DownloadError
 log = logging.getLogger("dyktowanie.ui")
 APP_TITLE = APP_NAME
 LOGO_FILE = resource_dir() / "zasoby" / "logo.svg"
-CPU_MODEL = "small"   # model startowy na komputerach bez karty NVIDIA (także macOS)
 
 PAUSE_OPTIONS = [
     (0.5, "Krótka — 0,5 s (szybciej, może dzielić zdania)"),
@@ -874,6 +874,7 @@ class MainWindow(QMainWindow):
         self.model_state = "loading"
         self.model_info: ModelInfo | None = None
         self.own_elevated = own_process_elevated()
+        self.hardware = sprzet.detect()
         self.started_from_window = False
         self.pending_release = None
         self._gpu_reload_pending = False
@@ -956,13 +957,8 @@ class MainWindow(QMainWindow):
         self.gpu_button = self.gpu_banner.add_button("Pobierz teraz", self._install_gpu_pack, primary=True)
         outer.addWidget(self.gpu_banner)
         self.cpu_banner = Banner("info", "bolt")
-        self.cpu_banner.set_message(
-            "Ten komputer nie ma karty graficznej NVIDIA",
-            "Wybrano lżejszy model, żeby tekst nadążał za mową. Najszybciej i najdokładniej działają "
-            "modele w chmurze (np. Groq) — wystarczy wkleić klucz API.",
-        )
-        self.cpu_banner.add_button("Rozumiem", self._dismiss_cpu_banner)
-        self.cpu_banner.add_button("Klucze API…", lambda: self._open_keys(), primary=True)
+        self.cpu_banner.set_message("Rozpoznawanie mowy liczy procesor", self.hardware.summary)
+        self.cpu_banner.add_button("Rozumiem", self._dismiss_cpu_banner, primary=True)
         outer.addWidget(self.cpu_banner)
         self.permission_banner = Banner("warning", "shield")
         self.permission_banner.set_message(
@@ -1077,6 +1073,8 @@ class MainWindow(QMainWindow):
         self.device_combo.addItem("Karta graficzna, jeśli dostępna", "auto")
         self.device_combo.addItem("Tylko procesor (CPU)", "cpu")
         form.addWidget(self.device_combo)
+        self.hardware_hint = helper_label(self.hardware.summary)
+        form.addWidget(self.hardware_hint)
         self.cloud_hint = helper_label("")
         self.cloud_hint.setVisible(False)
         form.addWidget(self.cloud_hint)
@@ -1274,7 +1272,7 @@ class MainWindow(QMainWindow):
         for key, (_name, label, _size) in MODELS.items():
             combo.addItem(label, key)
         combo.insertSeparator(combo.count())
-        header("— W chmurze przez API (wymaga klucza) —")
+        header("— W chmurze: własny klucz API, w trakcie testów —")
         for key, model in CLOUD_MODELS.items():
             combo.addItem(model.label, key)
             combo.setItemData(combo.count() - 1, model.note, Qt.ItemDataRole.ToolTipRole)
@@ -1291,8 +1289,7 @@ class MainWindow(QMainWindow):
     def _load_settings(self):
         s = self.settings
         # Pierwsze uruchomienie: bez karty NVIDIA model Turbo nie nadąża za mową — zaczynamy od lżejszego.
-        first_choice = DEFAULT_MODEL if gpu_acceleration_state() != "none" else CPU_MODEL
-        self._select(self.model_combo, s.value("model", first_choice))
+        self._select(self.model_combo, s.value("model", self.hardware.recommended_model))
         if not self.model_combo.currentData() or self.model_combo.currentData() == self.ADD_CUSTOM:
             self._select(self.model_combo, DEFAULT_MODEL)
         self._select(self.device_combo, s.value("device", "auto"))
@@ -1452,13 +1449,16 @@ class MainWindow(QMainWindow):
     def _update_model_extras(self, key: str):
         cloud = is_cloud_key(key)
         self.device_combo.setVisible(not cloud)
+        self.hardware_hint.setVisible(not cloud)
         self.custom_button.setText("Edytuj model…" if key.startswith("custom:") else "Własny model…")
         if cloud:
             resolved = self.api.resolve(key)
             service = resolved.service if resolved else "usługi w chmurze"
             self.cloud_hint.setText(
-                f"Tekst pojawia się po pauzie — całą wypowiedzią naraz. "
-                f"Nagranie każdej wypowiedzi jest wysyłane do: {service} (płatne wg cennika dostawcy)."
+                f"Opcja dla osób z własnym kontem u dostawcy: klucz API tworzysz samodzielnie, a nagranie "
+                f"każdej wypowiedzi jest wysyłane do: {service}. Opłaty i limity zapytań wg planu dostawcy "
+                f"(darmowe plany mają niskie limity). Tekst pojawia się po pauzie. "
+                f"Modele w chmurze są w trakcie testów — szybkość zależy od usługi i łącza."
             )
         self.cloud_hint.setVisible(cloud)
         if hasattr(self, "transcript"):
@@ -2036,6 +2036,14 @@ def run(argv=None) -> int:
     if not lock.tryLock(8000 if "--po-aktualizacji" in sys.argv else 100):
         QMessageBox.information(None, APP_TITLE, f"{APP_TITLE} już działa — znajdziesz go {TRAY_HINT}.")
         return 0
+
+    # Brakujące składniki (zwykle pobrane już przez instalator; na macOS — pierwszy start).
+    try:
+        import dyktowanie_przygotowanie as przygotowanie
+
+        przygotowanie.show_if_needed(app_settings())
+    except Exception:
+        log.exception("Kończenie instalacji nie powiodło się — program startuje mimo to")
 
     window = MainWindow()
     app.styleHints().colorSchemeChanged.connect(lambda _scheme: window.apply_theme())

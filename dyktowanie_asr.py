@@ -120,14 +120,15 @@ def prepare_gpu_libraries() -> bool:
     import ctypes
 
     directories = list(gpu_pack.library_dirs())
+    use_environment = not directories   # własny pakiet wystarcza; nie mieszamy wersji bibliotek z PyTorchem
     try:
-        spec = importlib.util.find_spec("torch")
+        spec = importlib.util.find_spec("torch") if use_environment else None
     except (ImportError, ValueError):
         spec = None
     if spec and spec.origin:
         directories.append(Path(spec.origin).parent / "lib")
     try:
-        nvidia = importlib.util.find_spec("nvidia")
+        nvidia = importlib.util.find_spec("nvidia") if use_environment else None
         if nvidia and nvidia.submodule_search_locations:
             for base in nvidia.submodule_search_locations:
                 directories.extend(Path(base).glob("*/bin"))

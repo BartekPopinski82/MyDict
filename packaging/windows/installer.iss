@@ -58,6 +58,12 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
     ValueName: "{#AppName}"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
+; Składniki zależne od sprzętu pobieramy w trakcie instalacji, żeby program był od razu
+; w pełni gotowy: biblioteki karty NVIDIA (tylko gdy jest taka karta) i model mowy.
+; Program sam rozpoznaje sprzęt i pokazuje postęp; gdy nic nie brakuje, kończy od razu.
+Filename: "{app}\{#AppExe}"; Parameters: "--przygotuj"; \
+    StatusMsg: "Pobieranie składników: model rozpoznawania mowy i obsługa karty graficznej…"; \
+    Flags: waituntilterminated
 ; Zwykła instalacja: pole wyboru „Uruchom” na ostatniej stronie.
 Filename: "{app}\{#AppExe}"; Description: "Uruchom {#AppName}"; Flags: nowait postinstall skipifsilent
 ; Aktualizacja uruchomiona przez program (/SILENT /AKTUALIZACJA): wróć do pracy bez pytania.

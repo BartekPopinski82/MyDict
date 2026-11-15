@@ -32,11 +32,21 @@ Pobierz najnowsze wydanie ze strony **[Releases](../../releases/latest)**.
 3. Zezwól na **Mikrofon**, a w banerze programu kliknij **Otwórz ustawienia** i włącz MyDict
    na liście **Dostępność** — bez tej zgody macOS nie pozwala wpisywać tekstu do innych aplikacji.
 
-### Pierwsze uruchomienie
+### Co instaluje się samo
 
-Model **Turbo** (ok. 1,6 GB) pobiera się jednorazowo. Program działa od razu na procesorze.
-Jeśli masz kartę **NVIDIA**, pojawi się propozycja pobrania bibliotek przyspieszających (ok. 1 GB,
-jednorazowo) — rozpoznawanie jest wtedy kilka razy szybsze.
+Instalator rozpoznaje sprzęt i **w trakcie instalacji** pobiera wszystko, czego program potrzebuje,
+żeby po pierwszym uruchomieniu był w pełni gotowy (wymaga internetu):
+
+| Karta graficzna | Co się pobiera | Jak działa rozpoznawanie |
+|---|---|---|
+| **NVIDIA** (GeForce, RTX, GTX, Quadro) | biblioteki NVIDIA (ok. 1 GB) + model Turbo (1,6 GB) | na karcie — szybko |
+| NVIDIA z mniej niż 2,5 GB pamięci | biblioteki NVIDIA + model Lekki (0,5 GB) | na karcie |
+| **AMD, Intel** albo brak karty | model Lekki (0,5 GB) | na procesorze |
+| **Mac** (Apple Silicon) | model Lekki — przy pierwszym uruchomieniu | na procesorze |
+
+Karty AMD i Intel są rozpoznawane, ale silnik rozpoznawania mowy potrafi liczyć tylko na kartach
+NVIDIA, dlatego dostają lżejszy model. Wykryty sprzęt program pokazuje w ustawieniach pod listą modeli.
+Gdy pobieranie zostanie pominięte albo zabraknie internetu, program dokończy je sam przy uruchomieniu.
 
 ## Jak dyktować
 
@@ -67,7 +77,13 @@ ponownie poprosić o zgodę **Dostępność**.
 
 ## Modele w chmurze (API)
 
-Na liście **Model** poniżej modeli lokalnych są modele w chmurze.
+Na liście **Model** poniżej modeli lokalnych są modele w chmurze. **To opcja dodatkowa, w trakcie
+testów** — przeznaczona dla osób, które mają własne konto u dostawcy:
+
+- klucz API każdy tworzy **samodzielnie**; program nie zawiera i nie udostępnia żadnego klucza,
+- darmowe plany (np. Groq) mają **niskie limity zapytań**, więc w praktyce to opcja dla planów płatnych,
+- szybkość zależy od usługi i łącza i nie została jeszcze zmierzona — patrz
+  [docs/plan-testow.md](docs/plan-testow.md).
 
 - **Klucze API…** — wklejasz klucz usługi; „Sprawdź” testuje go bez wysyłania dźwięku. Klucze są
   szyfrowane kontem Windows (DPAPI), a na macOS trafiają do pęku kluczy. Klucze ze zmiennych

@@ -11,8 +11,9 @@ Pythona ani folderu BAPO-transcript.
 - Instalator dla Windows i aplikacja dla macOS (Apple Silicon).
 - Automatyczne aktualizacje: program sam sprawdza nowe wydania, pobiera je i instaluje.
 - Obsługa macOS: wpisywanie tekstu do aktywnej aplikacji, globalny skrót, klucze API w pęku kluczy.
-- Przyspieszenie kartą NVIDIA pobierane jednym kliknięciem (ok. 1 GB) — instalator pozostaje mały,
-  a program działa od razu na procesorze.
+- Instalator rozpoznaje kartę graficzną i sam pobiera potrzebne składniki (biblioteki NVIDIA, model
+  mowy dobrany do sprzętu) — po instalacji program jest od razu gotowy.
+- Karty AMD i Intel są rozpoznawane; dostają lżejszy model liczony na procesorze.
 - Nowy wygląd: motyw jasny i ciemny (zgodny z systemem albo wybrany ręcznie), większa czytelność,
   ustawienia podzielone na sekcje, nowa ikona.
 

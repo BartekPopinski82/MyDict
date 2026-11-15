@@ -192,7 +192,10 @@ class ApiKeysDialog(QDialog):
         title.setProperty("sectionTitle", True)
         layout.addWidget(title)
         layout.addWidget(_helper(
-            "Wystarczy klucz usługi, z której chcesz korzystać. Link „Utwórz klucz” otwiera stronę dostawcy. "
+            "Modele w chmurze to opcja dla osób z własnym kontem u dostawcy: klucz tworzysz samodzielnie "
+            "(program żadnego nie zawiera), a opłaty i limity zapytań zależą od Twojego planu — darmowe plany "
+            "mają niskie limity. Wystarczy klucz usługi, z której chcesz korzystać; link „Utwórz klucz” "
+            "otwiera stronę dostawcy. "
             "Klucze z BAPO-transcript Lite, zmiennych środowiskowych lub pliku secrets.env są używane automatycznie. "
             "Pole „Endpoint” pozwala wskazać inny serwer usługi (np. region EU); puste = adres z pliku dostawcy.json."
         ))

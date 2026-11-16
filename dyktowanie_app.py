@@ -23,12 +23,12 @@ __version__ = "2.0.0"
 GITHUB_REPO = "BartekPopinski82/MyDict"
 # Klucz publiczny Ed25519, którym sprawdzany jest podpis wydania (SHA256SUMS.txt.sig).
 # Prywatny jest tylko u autora i w sekrecie MYDICT_KLUCZ_WYDAN repozytorium — zob. docs/wydawanie.md.
-RELEASE_PUBLIC_KEY = "ba6353e35331f823a1f804f4cd0c1c81e18b07b10deb33a9fb01eef9229d974f"
+RELEASE_PUBLIC_KEY = "f693ebb9524b48ed49a3054b95465a975caa355020c77d298c74cffa1703c120"
 
 # Zgłoszenia problemów: prywatne repozytorium, do którego program zapisuje zaszyfrowane
 # raporty, i klucz publiczny X25519 do ich szyfrowania (odczyt: packaging/zgloszenia.py).
 REPORTS_REPO = "BartekPopinski82/MyDict-zgloszenia"
-REPORTS_PUBLIC_KEY = "da490a791eded2dd6815fc632d1fea380a9104e5ea587c499b324b6c0805cd51"
+REPORTS_PUBLIC_KEY = "6ad7ef67d266c30d0ec89697ad0929fd65384395e1898804eb4140082eea6a62"
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"

@@ -1,5 +1,5 @@
 # Biblioteki programu (wersja samodzielna — własne środowisko, bez PyTorcha).
-PySide6-Essentials>=6.8,<6.12
+PySide6-Essentials>=6.12.0,<6.13
 faster-whisper>=1.2,<1.3
 ctranslate2>=4.6,<5
 numpy>=1.26

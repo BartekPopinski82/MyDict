@@ -77,9 +77,9 @@ tekst GPL 3.0, na który LGPL się powołuje, już jest — w pakiecie numpy). G
 do tego czasu wstawia tylko link i ostrzega przy budowaniu
 (`UWAGA: brak packaging/licencje/LGPL-3.0.txt`).
 
-- [ ] Pobierz oficjalny tekst: https://www.gnu.org/licenses/lgpl-3.0.txt (ok. 8 KB, zwykły tekst).
-- [ ] Zapisz go jako `packaging/licencje/LGPL-3.0.txt` (folder `licencje` trzeba utworzyć).
-- [ ] Zatwierdź w git. Od następnego budowania tekst sam trafi do `THIRD-PARTY-NOTICES.txt`
+- [x] Pobierz oficjalny tekst: https://www.gnu.org/licenses/lgpl-3.0.txt (ok. 8 KB, zwykły tekst).
+- [x] Zapisz go jako `packaging/licencje/LGPL-3.0.txt` (folder `licencje` trzeba utworzyć).
+- [x] Zatwierdź w git. Od następnego budowania tekst sam trafi do `THIRD-PARTY-NOTICES.txt`
       i ostrzeżenie zniknie.
 
 (Albo napisz w rozmowie z Claude „pobierz LGPL” — zrobi to za Ciebie.)

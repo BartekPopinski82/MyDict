@@ -1,0 +1,14 @@
+# Co tydzień: propozycje aktualizacji akcji GitHub (przypiętych do commitów) i bibliotek
+# Pythona. Biblioteki aktualizuje się, generując na nowo requirements-lock.txt:
+#   uv pip compile requirements-build.txt --universal --python-version 3.12 --generate-hashes --no-header -o requirements-lock.txt
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

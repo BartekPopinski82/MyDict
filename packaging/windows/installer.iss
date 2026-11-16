@@ -34,6 +34,14 @@ WizardStyle=modern
 CloseApplications=force
 RestartApplications=no
 ShowLanguageDialog=no
+LicenseFile=..\..\LICENSE.txt
+AppPublisherURL=https://github.com/BartekPopinski82/MyDict
+AppSupportURL=https://github.com/BartekPopinski82/MyDict/issues
+#ifdef Podpis
+; Podpis kodu: polecenie „mydict” podaje build.py (/Smydict=…) ze zmiennej MYDICT_SIGN_CMD.
+SignTool=mydict
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "polish"; MessagesFile: "compiler:Languages\Polish.isl"
@@ -44,6 +52,8 @@ Name: "autostart"; Description: "Uruchamiaj razem z Windows"; GroupDescription: 
 
 [Files]
 Source: "..\..\dist\{#AppName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
 ; Aktualizacja: usuń biblioteki poprzedniej wersji, żeby nie zostały osierocone pliki.

@@ -1,0 +1,29 @@
+name: Udostępnij wydanie
+
+# Drugi etap publikacji: wersja wstępna staje się najnowszym pełnym wydaniem,
+# więc zainstalowane programy zobaczą aktualizację. Uruchamiane ręcznie
+# (Actions → Udostępnij wydanie → Run workflow) po sprawdzeniu instalatora.
+on:
+  workflow_dispatch:
+    inputs:
+      znacznik:
+        description: "Znacznik wydania, np. v2.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  udostepnij:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sprawdź podpis i udostępnij
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.znacznik }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > pliki.txt
+          cat pliki.txt
+          grep -qx 'SHA256SUMS.txt.sig' pliki.txt || { echo "Wydanie bez podpisu — przerwano."; exit 1; }
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest

@@ -8,8 +8,11 @@ dla tego systemu → kontrola sumy SHA-256 → instalacja i ponowne uruchomienie
 * macOS: pobierany jest plik ZIP z aplikacją; po zamknięciu programu mały skrypt
   podmienia pakiet ``.app`` i uruchamia nową wersję.
 
-Suma kontrolna pochodzi z pola ``digest`` wydania albo z pliku ``SHA256SUMS.txt``
-dołączanego do każdego wydania. Plik bez zgodnej sumy nie jest instalowany.
+Suma kontrolna pochodzi z pliku ``SHA256SUMS.txt`` podpisanego kluczem autora
+(``SHA256SUMS.txt.sig``, klucz publiczny ``RELEASE_PUBLIC_KEY``). Wydanie bez
+prawidłowego podpisu nie jest instalowane — także wtedy, gdy ktoś przejmie konto
+GitHub i podmieni pliki razem z sumami. Bez zaszytego klucza (kopie robocze)
+wystarcza suma z pola ``digest`` albo z ``SHA256SUMS.txt``.
 Moduł nie zależy od Qt — interfejs jest w ``dyktowanie_ui``.
 """
 
@@ -32,10 +35,12 @@ from dyktowanie_app import (
     GITHUB_REPO,
     IS_MAC,
     IS_WINDOWS,
+    RELEASE_PUBLIC_KEY,
     __version__,
     app_bundle,
     data_dir,
 )
+from dyktowanie_krypto import verify_hex
 from dyktowanie_pobieranie import DownloadError, Progress, download, fetch_json, fetch_text
 
 
@@ -43,6 +48,7 @@ log = logging.getLogger("dyktowanie.aktualizacje")
 API_URL = "https://api.github.com/repos/{repo}/releases/latest"
 RELEASES_PAGE = "https://github.com/{repo}/releases/latest"
 CHECKSUMS_NAME = "SHA256SUMS.txt"
+SIGNATURE_NAME = CHECKSUMS_NAME + ".sig"
 CHECK_INTERVAL_HOURS = 20
 # Dozwolone adresy pobierania — pliki wydań GitHub.
 TRUSTED_PREFIXES = ("https://github.com/", "https://objects.githubusercontent.com/")
@@ -166,7 +172,13 @@ def parse_checksums(text: str) -> dict:
     return sums
 
 
-def expected_sha256(release: Release, asset: Asset, fetch_text_fn=fetch_text) -> str:
+def expected_sha256(release: Release, asset: Asset, fetch_text_fn=fetch_text,
+                    public_key: str | None = None) -> str:
+    """Suma, którą musi mieć pobrany plik. Z kluczem publicznym — tylko z podpisanego
+    ``SHA256SUMS.txt``; brak albo zły podpis to ``UpdateError``."""
+    key = RELEASE_PUBLIC_KEY if public_key is None else public_key
+    if key:
+        return _signed_sha256(release, asset, fetch_text_fn, key)
     if asset.sha256:
         return asset.sha256
     sums = release.asset(CHECKSUMS_NAME)
@@ -176,6 +188,30 @@ def expected_sha256(release: Release, asset: Asset, fetch_text_fn=fetch_text) ->
         return parse_checksums(fetch_text_fn(sums.url)).get(asset.name, "")
     except DownloadError as exc:
         raise UpdateError(f"Nie udało się pobrać sum kontrolnych. {exc}") from exc
+
+
+def _signed_sha256(release: Release, asset: Asset, fetch_text_fn, key: str) -> str:
+    sums, signature = release.asset(CHECKSUMS_NAME), release.asset(SIGNATURE_NAME)
+    if sums is None or signature is None:
+        raise UpdateError("Wydanie nie jest podpisane — dla bezpieczeństwa nie instaluję go automatycznie.")
+    for item in (sums, signature):
+        if not item.url.startswith(TRUSTED_PREFIXES):
+            raise UpdateError("Wydanie wskazuje plik spoza GitHuba — pominięto.")
+    try:
+        text = fetch_text_fn(sums.url)
+        signature_hex = fetch_text_fn(signature.url)
+    except DownloadError as exc:
+        raise UpdateError(f"Nie udało się pobrać sum kontrolnych. {exc}") from exc
+    if not verify_hex(key, text.encode("utf-8"), signature_hex):
+        log.warning("Nieprawidłowy podpis wydania %s", release.version)
+        raise UpdateError("Podpis wydania jest nieprawidłowy — aktualizacja odrzucona. "
+                          "Pobierz program ręcznie ze strony wydań.")
+    value = parse_checksums(text).get(asset.name, "")
+    if not value:
+        raise UpdateError("Podpisane sumy kontrolne nie obejmują pliku dla Twojego systemu.")
+    if asset.sha256 and asset.sha256 != value:
+        raise UpdateError("Suma pliku na GitHubie nie zgadza się z podpisaną — aktualizacja odrzucona.")
+    return value
 
 
 # ---------------------------------------------------------------------------

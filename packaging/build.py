@@ -9,6 +9,12 @@ macOS:   ``dist/MyDict.app``, ``…-macOS-<arch>.zip`` (dla aktualizacji)
          i ``…-macOS-<arch>.dmg`` (do pierwszej instalacji).
 
 Na końcu uruchamia zbudowany program z ``--selftest`` i zapisuje sumy SHA-256.
+
+Podpis kodu Windows: gdy ustawiona jest zmienna ``MYDICT_SIGN_CMD`` — polecenie
+podpisu z ``{plik}`` w miejscu ścieżki (np. ``signtool sign /fd SHA256 … {plik}``) —
+podpisywane są: MyDict.exe, drugi silnik, instalator i deinstalator. Po podpisaniu
+budowanie sprawdza podpisy i przerywa, gdy któryś jest nieprawidłowy.
+Dostawca certyfikatu jest dowolny; konfiguracja dla Azure — ``.github/workflows/wydanie.yml``.
 """
 
 from __future__ import annotations
@@ -43,6 +49,8 @@ def run(command: list[str], **kwargs) -> None:
 
 
 def build_app() -> Path:
+    # Licencje składników tego systemu (lista bibliotek różni się między Windows i macOS).
+    run([sys.executable, str(ROOT / "packaging" / "licencje.py")])
     run([sys.executable, "-m", "PyInstaller", str(ROOT / "packaging" / f"{APP_NAME}.spec"),
          "--noconfirm", "--distpath", str(DIST), "--workpath", str(ROOT / "build")])
     return DIST / (f"{APP_NAME}.app" if IS_MAC else APP_NAME)
@@ -69,6 +77,43 @@ def selftest(app: Path) -> None:
     shutil.rmtree(data, ignore_errors=True)
 
 
+def sign_command() -> str:
+    """Szablon polecenia podpisu kodu Windows (pusty = budowanie bez podpisu)."""
+    template = os.environ.get("MYDICT_SIGN_CMD", "").strip()
+    if template and "{plik}" not in template:
+        raise SystemExit("MYDICT_SIGN_CMD musi zawierać {plik} w miejscu podpisywanego pliku.")
+    return template if IS_WIN else ""
+
+
+def files_to_sign(app: Path) -> list[Path]:
+    """Własne pliki wykonywalne programu: MyDict.exe i drugi silnik (whisper.cpp)."""
+    files = [executable(app)]
+    for folder in app.rglob("whispercpp"):
+        if folder.is_dir():
+            files += sorted(p for p in folder.iterdir() if p.suffix.lower() in (".exe", ".dll"))
+    return files
+
+
+def sign_files(files: list[Path], template: str) -> None:
+    for path in files:
+        command = template.replace("{plik}", f'"{path}"')
+        sys.stdout.write(f"» podpis: {path.name}\n")
+        sys.stdout.flush()
+        subprocess.run(command, check=True, cwd=ROOT, shell=True)
+
+
+def verify_signatures(files: list[Path]) -> None:
+    """Każdy plik musi mieć prawidłowy podpis Authenticode (sprawdza Windows)."""
+    listing = ",".join("'" + str(p).replace("'", "''") + "'" for p in files)
+    script = (f"$bad = @({listing}) | ForEach-Object {{ Get-AuthenticodeSignature -LiteralPath $_ }} "
+              "| Where-Object Status -ne 'Valid'; "
+              "$bad | ForEach-Object { Write-Output \"$($_.Status): $($_.Path)\" }; exit $bad.Count")
+    result = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise SystemExit("Nieprawidłowe podpisy:\n" + result.stdout)
+    sys.stdout.write(f"Podpisy prawidłowe ({len(files)} plików).\n")
+
+
 def find_iscc() -> str | None:
     found = shutil.which("iscc") or shutil.which("ISCC")
     if found:
@@ -81,12 +126,16 @@ def find_iscc() -> str | None:
     return None
 
 
-def windows_installer(ver: str) -> Path | None:
+def windows_installer(ver: str, sign: str = "") -> Path | None:
     iscc = find_iscc()
     if iscc is None:
         sys.stdout.write("Pominięto instalator: nie znaleziono Inno Setup 6 (iscc).\n")
         return None
-    run([iscc, f"/DAppVersion={ver}", str(ROOT / "packaging" / "windows" / "installer.iss")])
+    command = [iscc, f"/DAppVersion={ver}"]
+    if sign:
+        # Inno podpisuje instalator i deinstalator; $f = ścieżka w cudzysłowie, $q = cudzysłów.
+        command += ["/DPodpis", "/Smydict=" + sign.replace('"', "$q").replace("{plik}", "$f")]
+    run(command + [str(ROOT / "packaging" / "windows" / "installer.iss")])
     return DIST / f"{APP_NAME}-{ver}-Windows-Setup.exe"
 
 
@@ -105,6 +154,8 @@ def macos_packages(app: Path, ver: str) -> list[Path]:
     try:
         run(["ditto", str(app), str(staging / app.name)])
         os.symlink("/Applications", staging / "Applications")
+        for name in ("LICENSE.txt", "THIRD-PARTY-NOTICES.txt"):
+            shutil.copy2(ROOT / name, staging / name)
         run(["hdiutil", "create", "-volname", APP_NAME, "-srcfolder", str(staging),
              "-ov", "-format", "UDZO", str(image)])
     finally:
@@ -128,6 +179,8 @@ def main() -> int:
     parser.add_argument("--no-installer", action="store_true", help="tylko aplikacja, bez instalatora")
     parser.add_argument("--require-whispercpp", action="store_true",
                         help="przerwij, gdy brakuje drugiego silnika (wydania publiczne)")
+    parser.add_argument("--require-signature", action="store_true",
+                        help="Windows: przerwij, gdy podpis kodu nie jest skonfigurowany")
     args = parser.parse_args()
     ver = version()
     sys.stdout.write(f"Buduję {APP_NAME} {ver} ({sys.platform}, {platform.machine()})\n")
@@ -138,13 +191,22 @@ def main() -> int:
         if args.require_whispercpp:
             raise SystemExit(message)
         sys.stdout.write("UWAGA: " + message + "\n")
+    sign = sign_command()
+    if args.require_signature and IS_WIN and not sign:
+        raise SystemExit("Brak MYDICT_SIGN_CMD — wydanie wymaga podpisu kodu.")
     app = build_app()
+    if sign:
+        signed = files_to_sign(app)
+        sign_files(signed, sign)
+        verify_signatures(signed)
     selftest(app)
     packages: list[Path] = []
     if not args.no_installer:
         if IS_WIN:
-            installer = windows_installer(ver)
+            installer = windows_installer(ver, sign)
             if installer is not None:
+                if sign:
+                    verify_signatures([installer])
                 packages.append(installer)
         elif IS_MAC:
             packages += macos_packages(app, ver)

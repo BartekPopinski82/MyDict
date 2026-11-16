@@ -9,6 +9,9 @@ Pythona ani folderu BAPO-transcript.
 
 ### Nowe
 - Instalator dla Windows i aplikacja dla macOS (Apple Silicon).
+- Aktualizacje są podpisane cyfrowo — program instaluje tylko wydania podpisane przez autora.
+- Przycisk **Zgłoś problem**: szyfrowane zgłoszenie do autora; po awarii program sam je zaproponuje.
+- Licencja programu i lista licencji dołączonych składników (w instalatorze i folderze programu).
 - Automatyczne aktualizacje: program sam sprawdza nowe wydania, pobiera je i instaluje.
 - Obsługa macOS: wpisywanie tekstu do aktywnej aplikacji, globalny skrót, klucze API w pęku kluczy.
 - Instalator rozpoznaje kartę graficzną i sam pobiera potrzebne składniki (biblioteki NVIDIA, model

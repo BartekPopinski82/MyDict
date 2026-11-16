@@ -15,6 +15,7 @@ przy starcie.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -315,6 +316,9 @@ def show_if_needed(settings=None, parent=None) -> bool:
 def run_setup(argv: list[str]) -> int:
     """Tryb ``--przygotuj``: wywoływany przez instalator. Zawsze kończy się kodem 0 —
     brak internetu nie może zepsuć instalacji; program dokończy pobieranie sam."""
+    if os.environ.get("MYDICT_TEST_INSTALACJI"):
+        log.info("Test instalatora — pomijam pobieranie składników")
+        return 0
     try:
         from dyktowanie_ui import app_icon, app_settings
 

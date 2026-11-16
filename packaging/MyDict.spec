@@ -25,7 +25,16 @@ datas = [
     (str(ROOT / "dostawcy.json"), "."),
     (str(ROOT / "ustawienia_asr.json"), "."),
     (str(ROOT / "zasoby" / "logo.svg"), "zasoby"),
+    (str(ROOT / "LICENSE.txt"), "."),
+    (str(ROOT / "THIRD-PARTY-NOTICES.txt"), "."),
 ]
+# Token zapisu zgłoszeń (sekret CI) — bez niego program tylko zapisuje zgłoszenia do pliku.
+_token = os.environ.get("MYDICT_ZGLOSZENIA_TOKEN", "").strip()
+if _token:
+    _token_file = Path(workpath) / "zgloszenia.token"  # noqa: F821 — workpath podaje PyInstaller
+    _token_file.parent.mkdir(parents=True, exist_ok=True)
+    _token_file.write_text(_token, encoding="utf-8")
+    datas.append((str(_token_file), "."))
 datas += collect_data_files("faster_whisper")        # model wykrywania mowy (Silero VAD)
 binaries = collect_dynamic_libs("ctranslate2")
 # Drugi silnik (whisper.cpp z Vulkan / Metal) — budowany przez packaging/build_whispercpp.py.
@@ -107,6 +116,6 @@ if IS_MAC:
                 "MyDict słucha mikrofonu, aby zamieniać mowę na tekst.",
             "NSAppleEventsUsageDescription":
                 "MyDict wpisuje podyktowany tekst do aktywnej aplikacji.",
-            "NSHumanReadableCopyright": "BAPO",
+            "NSHumanReadableCopyright": "© 2025-2026 BAPO. Freeware — zob. LICENSE.txt",
         },
     )

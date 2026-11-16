@@ -137,7 +137,7 @@ Gotowa aplikacja `.exe` wymaga nowej kompilacji; sama zmiana plików `.py` jej n
 
 Program raz dziennie sprawdza, czy jest nowsze wydanie (można to wyłączyć w ustawieniach albo
 sprawdzić ręcznie: **Sprawdź aktualizacje** na dole okna). Po kliknięciu **Zainstaluj i uruchom
-ponownie** pobiera plik, sprawdza jego sumę SHA-256, instaluje i wraca do pracy. Ustawienia, klucze
+ponownie** pobiera plik, sprawdza podpis wydania i sumę SHA-256, instaluje i wraca do pracy. Ustawienia, klucze
 API i pobrane modele zostają bez zmian.
 
 Na macOS, dopóki aplikacja nie jest podpisana certyfikatem Apple, po aktualizacji system może
@@ -196,6 +196,19 @@ Przycisk **Otwórz folder dziennika** na dole okna prowadzi wprost do dziennika 
 Plik `ustawienia_asr.json` (np. `{"final_beam": 5}`) skopiowany do katalogu danych zmienia ustawienia
 dekodera.
 
+## Zgłaszanie problemów
+
+Przycisk **Zgłoś problem** (w nagłówku okna i w menu ikony w zasobniku) wysyła autorowi opis
+problemu, wersję programu, opis systemu i — jeśli zostawisz zaznaczone — końcówkę dziennika.
+Zgłoszenie jest szyfrowane i może je odczytać tylko autor. Po awarii program przy następnym
+uruchomieniu sam zaproponuje wysłanie zgłoszenia; nic nie jest wysyłane bez Twojej zgody.
+
+## Licencja
+
+MyDict jest bezpłatny do użytku prywatnego i komercyjnego, ale nie jest oprogramowaniem otwartym —
+zob. [LICENSE.txt](LICENSE.txt). Licencje dołączonych składników (Qt, Python, Whisper i inne) są
+w pliku `THIRD-PARTY-NOTICES.txt` w folderze programu.
+
 ## Ograniczenia
 
 - Windows nie pozwala wpisywać do programów uruchomionych **jako administrator**, jeśli
@@ -209,7 +222,7 @@ dekodera.
 ```
 python -m venv .venv
 .venv\Scripts\activate            # macOS: source .venv/bin/activate
-pip install -r requirements-build.txt
+pip install --require-hashes -r requirements-lock.txt   # dokładnie te wersje, co w wydaniach
 python MyDict.py         # uruchomienie ze źródeł
 python -m pytest tests            # testy
 python packaging/build_whispercpp.py   # drugi silnik (wymaga CMake; Windows: Visual Studio C++ i Vulkan SDK)
@@ -231,5 +244,6 @@ python packaging/build.py         # aplikacja + instalator dla bieżącego syste
 | `packaging/` | PyInstaller, Inno Setup, skrypty wydań |
 
 - Jak wydać nową wersję: [docs/wydawanie.md](docs/wydawanie.md).
+- Co zostało do zrobienia ręcznie przed publikacją (konta, klucze, certyfikaty): [docs/DEVOPS.md](docs/DEVOPS.md).
 - Pomiar opóźnień (`[LAT #N]`, `latencja.csv`): [docs/pomiar-latencji.md](docs/pomiar-latencji.md).
 - Pomysły sprawdzone i odrzucone (nie powtarzać): [docs/eksperymenty.md](docs/eksperymenty.md).

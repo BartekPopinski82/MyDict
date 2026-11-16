@@ -29,3 +29,6 @@ graphify-out/
 # Sekrety — nigdy do repozytorium
 secrets.env
 .env
+
+# Generowany przy budowaniu (packaging/licencje.py) — inny dla Windows i macOS
+THIRD-PARTY-NOTICES.txt

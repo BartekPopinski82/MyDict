@@ -952,6 +952,11 @@ class MainWindow(QMainWindow):
         self.help_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.help_button.clicked.connect(self._show_help)
         header.addWidget(self.help_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.report_button = QPushButton("Zgłoś problem")
+        self.report_button.setToolTip("Wyślij autorowi opis problemu i dziennik programu")
+        self.report_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.report_button.clicked.connect(lambda: self.show_report_dialog())
+        header.addWidget(self.report_button, 0, Qt.AlignmentFlag.AlignVCenter)
         outer.addLayout(header)
 
         # Banery: aktualizacja, przyspieszenie GPU, zgoda systemu na wpisywanie.
@@ -1230,6 +1235,20 @@ class MainWindow(QMainWindow):
         self._help_dialog.raise_()
         self._help_dialog.activateWindow()
 
+    def show_report_dialog(self, crash: str = ""):
+        from dyktowanie_zgloszenia_ui import ReportDialog
+
+        self.show_window()
+        ReportDialog(self, crash).exec()
+
+    def offer_crash_report(self):
+        """Po awarii poprzedniej sesji proponuje wysłanie zgłoszenia (raz na awarię)."""
+        import dyktowanie_zgloszenia as reports
+
+        crash = reports.pending_crash()
+        if crash:
+            self.show_report_dialog(crash)
+
     def _refresh_icons(self):
         """Ikony mają kolor wpisany w obrazek — po zmianie motywu rysujemy je od nowa."""
         accent = motyw.color("accent")
@@ -1261,6 +1280,9 @@ class MainWindow(QMainWindow):
         menu.addAction(self.tray_toggle)
         menu.addAction(show)
         menu.addAction(check)
+        report = QAction("Zgłoś problem…", self)
+        report.triggered.connect(lambda: self.show_report_dialog())
+        menu.addAction(report)
         menu.addSeparator()
         menu.addAction(quit_action)
         self.tray.setContextMenu(menu)
@@ -2047,6 +2069,9 @@ class MainWindow(QMainWindow):
         self.overlay.close()
         if self.tray is not None:
             self.tray.hide()
+        import dyktowanie_zgloszenia as reports
+
+        reports.session_ended()
         event.accept()
         QApplication.quit()
 
@@ -2092,9 +2117,17 @@ def run(argv=None) -> int:
     except Exception:
         log.exception("Kończenie instalacji nie powiodło się — program startuje mimo to")
 
+    try:
+        import dyktowanie_zgloszenia as reports
+
+        reports.session_started()   # wykrywa awarię natywną poprzedniego uruchomienia
+    except Exception:
+        log.exception("Znacznik sesji niedostępny")
+
     window = MainWindow()
     app.styleHints().colorSchemeChanged.connect(lambda _scheme: window.apply_theme())
     window.show()
+    QTimer.singleShot(2500, window.offer_crash_report)
     code = app.exec()
     lock.unlock()
     return code

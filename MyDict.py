@@ -106,7 +106,8 @@ def selftest() -> int:
 
     problems = []
     for name in ("numpy", "sounddevice", "websockets", "ctranslate2", "faster_whisper",
-                 "PySide6.QtWidgets", "PySide6.QtSvg", "dyktowanie_ui", "dyktowanie_aktualizacje"):
+                 "PySide6.QtWidgets", "PySide6.QtSvg", "dyktowanie_ui", "dyktowanie_aktualizacje",
+                 "dyktowanie_zgloszenia_ui"):
         try:
             importlib.import_module(name)
         except Exception as exc:  # brak modułu albo biblioteki systemowej
@@ -166,7 +167,16 @@ def main():
 
     def excepthook(kind, value, traceback):
         logging.getLogger("dyktowanie").critical("Nieobsłużony błąd", exc_info=(kind, value, traceback))
-        _show_error(f"Wystąpił nieoczekiwany błąd:\n\n{value}\n\nSzczegóły: {log_path}")
+        try:
+            import traceback as tb
+
+            from dyktowanie_zgloszenia import record_crash
+
+            record_crash("".join(tb.format_exception(kind, value, traceback)))
+        except Exception:
+            pass
+        _show_error(f"Wystąpił nieoczekiwany błąd:\n\n{value}\n\nSzczegóły: {log_path}\n\n"
+                    "Przy następnym uruchomieniu program zaproponuje wysłanie zgłoszenia.")
 
     sys.excepthook = excepthook
     try:

@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import dyktowanie_aktualizacje as upd  # noqa: E402
 import dyktowanie_gpu_pakiet as gpu_pack  # noqa: E402
+import dyktowanie_krypto as krypto  # noqa: E402
 import dyktowanie_pobieranie as dl  # noqa: E402
 
 
@@ -82,13 +83,81 @@ def test_checksum_from_sums_file_when_digest_missing():
     release = upd.release_from_json(RELEASE_JSON)
     mac = upd.pick_asset(release, "-macOS-arm64.zip")
     sums = f"{'cd' * 32}  MyDict-2.1.0-macOS-arm64.zip\n{'ef' * 32} *inny.exe\nto nie jest suma\n"
-    assert upd.expected_sha256(release, mac, lambda url: sums) == "cd" * 32
+    assert upd.expected_sha256(release, mac, lambda url: sums, public_key="") == "cd" * 32
     assert upd.parse_checksums(sums)["inny.exe"] == "ef" * 32
+
+
+# -- podpis wydania -------------------------------------------------------------
+
+SEED = bytes(range(32))
+PUBLIC = krypto.public_key(SEED).hex()
+SUMS = f"{'ab' * 32}  MyDict-2.1.0-Windows-Setup.exe\n{'cd' * 32}  MyDict-2.1.0-macOS-arm64.zip\n"
+
+
+def signed_release(sums=SUMS, signature=None):
+    assets = list(RELEASE_JSON["assets"]) + [
+        {"name": "SHA256SUMS.txt.sig", "size": 1,
+         "browser_download_url": "https://github.com/x/y/releases/download/v2.1.0/SHA256SUMS.txt.sig"}]
+    files = {"SHA256SUMS.txt": sums,
+             "SHA256SUMS.txt.sig": signature if signature is not None else krypto.sign(SEED, sums.encode()).hex()}
+    return upd.release_from_json(dict(RELEASE_JSON, assets=assets)), lambda url: files[url.rsplit("/", 1)[1]]
+
+
+def test_signed_sums_are_accepted():
+    release, fetch = signed_release()
+    mac = upd.pick_asset(release, "-macOS-arm64.zip")
+    assert upd.expected_sha256(release, mac, fetch, public_key=PUBLIC) == "cd" * 32
+
+
+def test_bad_signature_is_refused():
+    release, fetch = signed_release(signature=krypto.sign(bytes(32), SUMS.encode()).hex())
+    with pytest.raises(upd.UpdateError, match="Podpis wydania"):
+        upd.expected_sha256(release, upd.pick_asset(release, "-macOS-arm64.zip"), fetch, public_key=PUBLIC)
+
+
+def test_tampered_sums_are_refused():
+    release, fetch = signed_release()
+    original = fetch
+
+    def tampered(url):
+        text = original(url)
+        return text.replace("cd" * 32, "00" * 32) if url.endswith(".txt") else text
+
+    with pytest.raises(upd.UpdateError, match="Podpis wydania"):
+        upd.expected_sha256(release, upd.pick_asset(release, "-macOS-arm64.zip"), tampered, public_key=PUBLIC)
+
+
+def test_unsigned_release_is_refused_when_key_is_built_in():
+    release = upd.release_from_json(RELEASE_JSON)
+    with pytest.raises(upd.UpdateError, match="nie jest podpisane"):
+        upd.expected_sha256(release, upd.pick_asset(release, "-Windows-Setup.exe"), lambda url: "", public_key=PUBLIC)
+
+
+def test_github_digest_must_match_signed_sum():
+    release, fetch = signed_release(sums=SUMS.replace("ab" * 32, "11" * 32))
+    with pytest.raises(upd.UpdateError, match="nie zgadza się"):
+        upd.expected_sha256(release, upd.pick_asset(release, "-Windows-Setup.exe"), fetch, public_key=PUBLIC)
+
+
+def test_release_tool_signature_is_accepted_by_updater(tmp_path):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "packaging"))
+    import wydanie
+
+    sums = tmp_path / "SHA256SUMS.txt"
+    sums.write_text(SUMS, encoding="utf-8", newline="\n")
+    wydanie.code_constant = lambda name: ""          # klucz testowy zamiast klucza z programu
+    signature = wydanie.sign_file(sums, SEED.hex()).read_text(encoding="ascii")
+    assert krypto.verify_hex(PUBLIC, sums.read_bytes(), signature)
+
+
+def test_built_in_release_key_is_valid():
+    assert len(bytes.fromhex(upd.RELEASE_PUBLIC_KEY)) == 32
 
 
 def test_update_without_checksum_is_refused(monkeypatch, tmp_path):
     data = dict(RELEASE_JSON, assets=[dict(RELEASE_JSON["assets"][1])])
     release = upd.release_from_json(data)
+    monkeypatch.setattr(upd, "RELEASE_PUBLIC_KEY", "")
     monkeypatch.setattr(upd, "platform_asset_suffix", lambda *a: "-macOS-arm64.zip")
     monkeypatch.setattr(upd, "updates_dir", lambda: tmp_path)
     with pytest.raises(upd.UpdateError, match="sumy kontrolnej"):
@@ -105,7 +174,8 @@ def test_update_from_untrusted_host_is_refused(monkeypatch, tmp_path):
 
 
 def test_fetch_update_passes_checksum_and_cleans_old_files(monkeypatch, tmp_path):
-    release = upd.release_from_json(RELEASE_JSON)
+    release, fetch = signed_release()
+    monkeypatch.setattr(upd, "RELEASE_PUBLIC_KEY", PUBLIC)
     monkeypatch.setattr(upd, "platform_asset_suffix", lambda *a: "-Windows-Setup.exe")
     monkeypatch.setattr(upd, "updates_dir", lambda: tmp_path)
     (tmp_path / "stara-wersja.exe").write_bytes(b"x")
@@ -115,7 +185,7 @@ def test_fetch_update_passes_checksum_and_cleans_old_files(monkeypatch, tmp_path
         seen.update(url=url, sha256=sha256, destination=destination)
         return destination
 
-    path = upd.fetch_update(release, fetch_file=fake)
+    path = upd.fetch_update(release, fetch_file=fake, fetch_text_fn=fetch)
     assert path.name == "MyDict-2.1.0-Windows-Setup.exe"
     assert seen["sha256"] == "ab" * 32
     assert not (tmp_path / "stara-wersja.exe").exists()

@@ -128,5 +128,6 @@ Błąd limitu (HTTP 429) ma już własny komunikat („przekroczono limit zapyta
 - [ ] Co najmniej jeden test na sprzęcie bez karty NVIDIA (punkt 3).
 - [ ] Decyzja: wydajemy macOS razem z Windows czy później (punkt 4).
 - [ ] Ustalona nazwa konta/repozytorium GitHub — wpisać w `dyktowanie_app.py` (`GITHUB_REPO`).
-- [ ] Unieważniony stary klucz Groq, który był w `dostawcy.json`.
-- [ ] Decyzja o podpisywaniu kodu (bez podpisu: ostrzeżenie SmartScreen / „Otwórz mimo to”).
+- [x] Stary klucz Groq: nie ma go w `dostawcy.json` ani w historii git (sprawdzone 2026-11-16);
+      klucze trzymane są w `secrets.env`, który jest w `.gitignore`.
+- [ ] Konta, sekrety, klucze, certyfikaty, licencja LGPL — lista kroków w [DEVOPS.md](DEVOPS.md).

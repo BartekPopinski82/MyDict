@@ -7,7 +7,8 @@ Uruchamiać w środowisku budowania (``requirements-build.txt``). Lista bibliote
 Pythona powstaje z ``requirements.txt`` i ich zależności (bez narzędzi budowania),
 z tekstami licencji z metadanych pakietów. Składniki spoza PyPI (Python, PyInstaller,
 whisper.cpp, modele, biblioteki NVIDIA) są opisane w ``OTHER_COMPONENTS``.
-Teksty licencji, których pakiety nie dołączają (LGPL-3.0), leżą w ``packaging/licencje/``.
+Teksty licencji, których pakiety nie dołączają (LGPL-3.0, GPL-3.0), leżą w ``packaging/licencje/``.
+Pakiety wykluczone z programu (``wykluczenia.py``) są pomijane; pakiet na GPL przerywa pracę.
 """
 
 from __future__ import annotations
@@ -21,6 +22,8 @@ from packaging.markers import default_environment
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
+from wykluczenia import EXCLUDED_PACKAGES, gpl_license
+
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "THIRD-PARTY-NOTICES.txt"
 EXTRA_TEXTS = ROOT / "packaging" / "licencje"
@@ -32,10 +35,9 @@ HEADER = """MyDict — informacje o składnikach osób trzecich / Third-party no
 MyDict zawiera lub pobiera poniższe składniki. Każdy z nich podlega własnej licencji,
 przytoczonej niżej; licencja MyDict (LICENSE.txt) ich nie zmienia ani nie ogranicza.
 
-Biblioteki Qt i PySide6 (LGPL-3.0) oraz FFmpeg w PyAV (LGPL) są dołączone jako osobne,
-dynamicznie ładowane pliki w folderze programu (_internal). Można je zastąpić własną,
-zgodną wersją. Kod źródłowy: https://download.qt.io/official_releases/QtForPython/ ,
-https://code.qt.io/ , https://github.com/PyAV-Org/PyAV , https://ffmpeg.org/download.html .
+Biblioteki Qt i PySide6 (LGPL-3.0) są dołączone jako osobne, dynamicznie ładowane pliki
+w folderze programu (_internal). Można je zastąpić własną, zgodną wersją.
+Kod źródłowy: https://download.qt.io/official_releases/QtForPython/ , https://code.qt.io/ .
 Na prośbę przekażemy kopię kodu źródłowego tych bibliotek w wersjach użytych w programie
 (kontakt: https://github.com/BartekPopinski82/MyDict/issues).
 """
@@ -85,7 +87,7 @@ def runtime_distributions(requirements: Path = ROOT / "requirements.txt") -> lis
         if requirement.marker is not None and not requirement.marker.evaluate(env):
             continue
         key = canonicalize_name(requirement.name)
-        if key in seen:
+        if key in seen or key in EXCLUDED_PACKAGES:   # wykluczonych nie dołączamy do programu
             continue
         try:
             dist = metadata.distribution(requirement.name)
@@ -160,6 +162,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sprawdz", action="store_true")
     args = parser.parse_args()
+    gpl = [f"{d.metadata['Name']} ({license_name(d)})" for d in runtime_distributions() if gpl_license(license_name(d))]
+    if gpl:
+        sys.stderr.write("BŁĄD: pakiety na licencji GPL nie mogą trafić do programu: " + ", ".join(gpl)
+                         + ". Wyklucz je w packaging/wykluczenia.py albo zastąp innymi.\n")
+        return 1
     text = render()
     if args.sprawdz:
         current = OUTPUT.read_text(encoding="utf-8") if OUTPUT.is_file() else ""

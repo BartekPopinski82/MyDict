@@ -948,7 +948,7 @@ class MainWindow(QMainWindow):
         self.status_pill.setProperty("pill", "busy")
         header.addWidget(self.status_pill, 0, Qt.AlignmentFlag.AlignVCenter)
         self.help_button = QPushButton("Pomoc")
-        self.help_button.setToolTip("Lista komend głosowych i znaków specjalnych")
+        self.help_button.setToolTip("Komendy głosowe, znaki specjalne i informacje o programie")
         self.help_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.help_button.clicked.connect(self._show_help)
         header.addWidget(self.help_button, 0, Qt.AlignmentFlag.AlignVCenter)

@@ -49,13 +49,38 @@ hiddenimports = collect_submodules("websockets")
 if IS_MAC:
     hiddenimports += collect_submodules("keyring.backends")
 
+# Pakiety wykluczone z programu (packaging/wykluczenia.py): nie są dołączane, a zaślepka
+# w sys.modules pozwala zależnościom je zaimportować; dopiero użycie zgłasza czytelny błąd.
+_wykluczenia = {}
+exec((ROOT / "packaging" / "wykluczenia.py").read_text(encoding="utf-8"), _wykluczenia)
+EXCLUDED_PACKAGES = _wykluczenia["EXCLUDED_PACKAGES"]
+_stub_hook = Path(workpath) / "zaslepki_wykluczonych.py"  # noqa: F821 — workpath podaje PyInstaller
+_stub_hook.parent.mkdir(parents=True, exist_ok=True)
+_stub_hook.write_text(f'''
+import sys
+import types
+
+class _Zaslepka(types.ModuleType):
+    def __getattr__(self, attr):
+        if attr.startswith("__"):
+            raise AttributeError(attr)
+        raise RuntimeError(f"{{self.__name__}}: {{self._powod}}")
+
+for _nazwa, _powod in {EXCLUDED_PACKAGES!r}.items():
+    _modul = _Zaslepka(_nazwa)
+    _modul._powod = _powod
+    sys.modules.setdefault(_nazwa, _modul)
+''', encoding="utf-8")
+
 analysis = Analysis(  # noqa: F821
     [str(ROOT / "MyDict.py")],
     pathex=[str(ROOT)],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    excludes=["tkinter", "torch", "torchaudio", "PIL", "pytest", "IPython", "matplotlib", "pandas", "scipy"],
+    excludes=["tkinter", "torch", "torchaudio", "PIL", "pytest", "IPython", "matplotlib", "pandas", "scipy",
+              *EXCLUDED_PACKAGES],
+    runtime_hooks=[str(_stub_hook)],
     noarchive=False,
 )
 pyz = PYZ(analysis.pure)  # noqa: F821

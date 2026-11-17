@@ -83,8 +83,15 @@ spam, następnym krokiem jest mały serwer pośredniczący, który trzyma token 
 `LICENSE.txt` — licencja programu (freeware, także komercyjnie, bez otwartego kodu); instalator
 pokazuje ją przed instalacją. `THIRD-PARTY-NOTICES.txt` generuje `packaging/licencje.py` przy
 każdym budowaniu (lista bibliotek różni się między systemami), dlatego nie ma go w repozytorium.
-Brakuje pełnego tekstu LGPL-3.0 (Qt/PySide6, FFmpeg): połóż go jako `packaging/licencje/LGPL-3.0.txt`
-(https://www.gnu.org/licenses/lgpl-3.0.txt), a generator go dołączy. Do tego czasu ostrzega przy budowaniu.
+Pełne teksty LGPL-3.0 i GPL-3.0 (wymagane przez Qt/PySide6) leżą w `packaging/licencje/`.
+Program pokazuje obie listy w Pomocy → O programie.
+
+Żadna biblioteka na GPL nie może trafić do programu (zamknięty kod). Pilnuje tego
+`packaging/wykluczenia.py`: generator licencji przerywa pracę przy pakiecie na GPL, a budowanie
+przy bibliotece GPL w zbudowanym programie (np. x264/x265). Tam też są pakiety wykluczone
+z programu: PyAV (FFmpeg) nie jest dołączany, bo dyktowanie podaje dźwięk jako próbki,
+a pakiet z PyPI zawiera kodery wideo na GPL. Odczyt plików audio (np. przyszła transkrypcja
+plików) wymaga osobnego FFmpeg zbudowanego tylko na LGPL.
 
 ## Biblioteki
 

@@ -1,22 +1,80 @@
-"""Pomoc dostępna w oknie programu; lista pochodzi z aktywnych komend."""
+"""Pomoc dostępna w oknie programu: komendy dyktowania (z aktywnych komend)
+oraz informacje o programie z podglądem plików licencji."""
 
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
     QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem, QTabWidget,
+    QVBoxLayout, QWidget,
 )
 
+from dyktowanie_app import APP_NAME, ORGANIZATION, __version__, resource_dir
 from dyktowanie_komendy import COMMANDS
+
+# Pliki licencji dołączane do programu (packaging/MyDict.spec, instalator).
+LICENSE_FILES = (
+    ("Licencja programu MyDict", "LICENSE.txt"),
+    ("Licencje składników (Qt, PySide6, Python i inne)", "THIRD-PARTY-NOTICES.txt"),
+)
+
+
+class LicenseViewer(QDialog):
+    """Podgląd pliku licencji w oknie programu (tylko do odczytu)."""
+
+    def __init__(self, title: str, file_name: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.resize(820, 700)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 14)
+        text = QPlainTextEdit()
+        text.setReadOnly(True)
+        text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        text.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        text.setAccessibleName(title)
+        path = resource_dir() / file_name
+        try:
+            text.setPlainText(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            text.setPlainText(f"Nie znaleziono pliku {file_name} w folderze programu.")
+        layout.addWidget(text, 1)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        close = QPushButton("Zamknij")
+        close.clicked.connect(self.close)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
 
 
 class HelpDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Pomoc — komendy dyktowania")
+        self.setWindowTitle("Pomoc")
         self.resize(800, 720)
         self.setMinimumSize(640, 500)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 20, 22, 18)
+        layout.setSpacing(12)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._commands_page(), "Komendy")
+        self.tabs.addTab(self._about_page(), "O programie")
+        layout.addWidget(self.tabs, 1)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        close = QPushButton("Zamknij")
+        close.clicked.connect(self.close)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+        self.search.textChanged.connect(self._filter)
+        QTimer.singleShot(0, self.table.resizeRowsToContents)
+
+    def _commands_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(4, 12, 4, 4)
         layout.setSpacing(12)
 
         title = QLabel("Znaki i komendy głosowe")
@@ -77,14 +135,49 @@ class HelpDialog(QDialog):
         )
         tips.setWordWrap(True)
         layout.addWidget(tips)
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-        close = QPushButton("Zamknij")
-        close.clicked.connect(self.close)
-        buttons.addWidget(close)
-        layout.addLayout(buttons)
-        self.search.textChanged.connect(self._filter)
-        QTimer.singleShot(0, self.table.resizeRowsToContents)
+        return page
+
+    def _about_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(4, 12, 4, 4)
+        layout.setSpacing(12)
+
+        title = QLabel(f"{APP_NAME} {__version__}")
+        title.setProperty("sectionTitle", True)
+        layout.addWidget(title)
+        # Informacja o prawach autorskich bibliotek LGPL i odesłanie do tekstów GPL/LGPL
+        # są wymagane, gdy program pokazuje własne informacje o prawach autorskich (LGPL-3.0, pkt 4c).
+        info = QLabel(
+            f"Dyktowanie: zamiana mowy na tekst wpisywany do dowolnego programu.<br><br>"
+            f"© 2025-2026 {ORGANIZATION}. Program bezpłatny (freeware), nie jest oprogramowaniem "
+            f"otwartym. Zasady korzystania określa licencja programu.<br><br>"
+            f"Program korzysta ze składników osób trzecich na ich własnych licencjach, m.in. "
+            f"Qt i PySide6 (© The Qt Company Ltd. i inni, GNU LGPL 3.0), Python (PSF), "
+            f"faster-whisper, CTranslate2, whisper.cpp i modeli Whisper (MIT). Pełne teksty "
+            f"licencji, w tym GNU LGPL i GNU GPL, oraz informacje o kodzie źródłowym tych "
+            f"składników zawiera lista licencji składników.<br><br>"
+            f'Kontakt i zgłoszenia: <a href="https://github.com/BartekPopinski82/MyDict/issues">'
+            f"github.com/BartekPopinski82/MyDict</a>"
+        )
+        info.setWordWrap(True)
+        info.setOpenExternalLinks(True)
+        info.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        layout.addWidget(info)
+
+        for label, file_name in LICENSE_FILES:
+            button = QPushButton(label)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.clicked.connect(lambda _=False, t=label, f=file_name: self._show_license(t, f))
+            row = QHBoxLayout()
+            row.addWidget(button)
+            row.addStretch()
+            layout.addLayout(row)
+        layout.addStretch(1)
+        return page
+
+    def _show_license(self, title: str, file_name: str) -> None:
+        LicenseViewer(title, file_name, self).exec()
 
     def _filter(self, text):
         fold = str.maketrans("ąćęłńóśźż", "acelnoszz")

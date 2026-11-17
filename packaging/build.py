@@ -30,6 +30,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from wykluczenia import GPL_BINARY_MARKERS
+
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
 APP_NAME = "MyDict"
@@ -53,7 +55,18 @@ def build_app() -> Path:
     run([sys.executable, str(ROOT / "packaging" / "licencje.py")])
     run([sys.executable, "-m", "PyInstaller", str(ROOT / "packaging" / f"{APP_NAME}.spec"),
          "--noconfirm", "--distpath", str(DIST), "--workpath", str(ROOT / "build")])
-    return DIST / (f"{APP_NAME}.app" if IS_MAC else APP_NAME)
+    app = DIST / (f"{APP_NAME}.app" if IS_MAC else APP_NAME)
+    check_no_gpl(app)
+    return app
+
+
+def check_no_gpl(app: Path) -> None:
+    """Program jest zamkniętym freeware — biblioteka GPL w pakiecie przerywa budowanie."""
+    found = sorted(str(path.relative_to(app)) for path in app.rglob("*")
+                   if path.is_file() and any(marker in path.name.lower() for marker in GPL_BINARY_MARKERS))
+    if found:
+        raise SystemExit("Biblioteki na licencji GPL w zbudowanym programie:\n  " + "\n  ".join(found)
+                         + "\nUsuń pakiet, który je przynosi (packaging/wykluczenia.py).")
 
 
 def executable(app: Path) -> Path:

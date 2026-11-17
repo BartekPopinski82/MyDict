@@ -64,7 +64,9 @@ class _Zaslepka(types.ModuleType):
     def __getattr__(self, attr):
         if attr.startswith("__"):
             raise AttributeError(attr)
-        raise RuntimeError(f"{{self.__name__}}: {{self._powod}}")
+        # ImportError: biblioteki sprawdzające opcjonalny pakiet (try: import … except ImportError)
+        # uznają go wtedy za niezainstalowany.
+        raise ImportError(f"{{self.__name__}}: {{self._powod}}", name=self.__name__)
 
 for _nazwa, _powod in {EXCLUDED_PACKAGES!r}.items():
     _modul = _Zaslepka(_nazwa)
@@ -79,10 +81,19 @@ analysis = Analysis(  # noqa: F821
     datas=datas,
     hiddenimports=hiddenimports,
     excludes=["tkinter", "torch", "torchaudio", "PIL", "pytest", "IPython", "matplotlib", "pandas", "scipy",
-              *EXCLUDED_PACKAGES],
+              *EXCLUDED_PACKAGES, *_wykluczenia["EXCLUDED_MODULES"]],
     runtime_hooks=[str(_stub_hook)],
     noarchive=False,
 )
+
+
+def _wanted(entry) -> bool:
+    name = entry[0].replace("\\", "/").lower()
+    return not any(name.startswith(pattern) for pattern in _wykluczenia["EXCLUDED_FILES"])
+
+
+analysis.binaries = [entry for entry in analysis.binaries if _wanted(entry)]
+analysis.datas = [entry for entry in analysis.datas if _wanted(entry)]
 pyz = PYZ(analysis.pure)  # noqa: F821
 
 version_file = None

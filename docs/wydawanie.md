@@ -90,7 +90,8 @@ Program pokazuje obie listy w Pomocy → O programie.
 `packaging/wykluczenia.py`: generator licencji przerywa pracę przy pakiecie na GPL, a budowanie
 przy bibliotece GPL w zbudowanym programie (np. x264/x265). Tam też są pakiety wykluczone
 z programu: PyAV (FFmpeg) nie jest dołączany, bo dyktowanie podaje dźwięk jako próbki,
-a pakiet z PyPI zawiera kodery wideo na GPL. Odczyt plików audio (np. przyszła transkrypcja
+a pakiet z PyPI zawiera kodery wideo na GPL. Wykluczone są też zbędne części Qt (programowy
+OpenGL, tłumaczenia Qt, moduł sieciowy z wtyczkami) i setuptools — razem ok. 95 MB. Odczyt plików audio (np. przyszła transkrypcja
 plików) wymaga osobnego FFmpeg zbudowanego tylko na LGPL.
 
 ## Biblioteki

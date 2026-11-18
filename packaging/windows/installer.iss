@@ -67,6 +67,10 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
     ValueName: "{#AppName}"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
+; Ustawienia programu (QSettings: BAPO\MyDict, dawniej BAPO\BAPO-dyktowanie) — usuwane przy deinstalacji.
+Root: HKCU; Subkey: "Software\BAPO"; Flags: uninsdeletekeyifempty
+Root: HKCU; Subkey: "Software\BAPO\{#AppName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\BAPO\BAPO-dyktowanie"; Flags: uninsdeletekey dontcreatekey
 
 [Run]
 ; Składniki zależne od sprzętu pobieramy w trakcie instalacji, żeby program był od razu
@@ -82,8 +86,39 @@ Filename: "{app}\{#AppExe}"; Parameters: "--po-aktualizacji"; Flags: nowait; Che
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\_internal"
+; Dane programu: pobrane biblioteki karty graficznej, whisper.cpp i jego modele, dzienniki, pomiary.
+Type: filesandordirs; Name: "{localappdata}\{#AppName}"
 
 [Code]
+// Modele mowy pobrane przez program do pamięci podręcznej Hugging Face (faster-whisper).
+// Nazwy repozytoriów: dyktowanie_asr.MODELS → faster_whisper.utils._MODELS.
+function HuggingFaceHubCache: String;
+begin
+  Result := GetEnv('HF_HUB_CACHE');
+  if Result = '' then
+  begin
+    Result := GetEnv('HF_HOME');
+    if Result <> '' then
+      Result := AddBackslash(Result) + 'hub'
+    else
+      Result := AddBackslash(GetEnv('USERPROFILE')) + '.cache\huggingface\hub';
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Cache: String;
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    Cache := AddBackslash(HuggingFaceHubCache);
+    DelTree(Cache + 'models--Systran--faster-whisper-small', True, True, True);
+    DelTree(Cache + 'models--Systran--faster-whisper-medium', True, True, True);
+    DelTree(Cache + 'models--Systran--faster-whisper-large-v3', True, True, True);
+    DelTree(Cache + 'models--mobiuslabsgmbh--faster-whisper-large-v3-turbo', True, True, True);
+  end;
+end;
+
 function IsSelfUpdate: Boolean;
 var
   Index: Integer;

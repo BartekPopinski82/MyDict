@@ -28,6 +28,9 @@ datas = [
     (str(ROOT / "LICENSE.txt"), "."),
     (str(ROOT / "THIRD-PARTY-NOTICES.txt"), "."),
 ]
+if IS_MAC:
+    # Na Windows deinstaluje Inno Setup; na macOS ten skrypt (Pomoc → O programie → Odinstaluj).
+    datas.append((str(ROOT / "deinstalacja" / "Odinstaluj-MyDict.command"), "deinstalacja"))
 # Token zapisu zgłoszeń (sekret CI) — bez niego program tylko zapisuje zgłoszenia do pliku.
 _token = os.environ.get("MYDICT_ZGLOSZENIA_TOKEN", "").strip()
 if _token:

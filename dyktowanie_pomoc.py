@@ -4,11 +4,12 @@ oraz informacje o programie z podglądem plików licencji."""
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem, QTabWidget,
+    QAbstractItemView, QApplication, QDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+    QMessageBox, QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem, QTabWidget,
     QVBoxLayout, QWidget,
 )
 
+import dyktowanie_deinstalacja as deinstalacja
 from dyktowanie_app import APP_NAME, ORGANIZATION, __version__, resource_dir
 from dyktowanie_komendy import COMMANDS
 
@@ -173,8 +174,44 @@ class HelpDialog(QDialog):
             row.addWidget(button)
             row.addStretch()
             layout.addLayout(row)
+        if deinstalacja.can_uninstall():
+            uninstall = QPushButton(f"Odinstaluj {APP_NAME}…")
+            uninstall.setCursor(Qt.CursorShape.PointingHandCursor)
+            uninstall.setToolTip("Usuń program, pobrane składniki i modele, ustawienia oraz skrót z pulpitu")
+            uninstall.clicked.connect(self._uninstall)
+            row = QHBoxLayout()
+            row.addWidget(uninstall)
+            row.addStretch()
+            layout.addSpacing(8)
+            layout.addLayout(row)
         layout.addStretch(1)
         return page
+
+    def _uninstall(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            f"Odinstaluj {APP_NAME}",
+            f"Odinstalować {APP_NAME}?\n\n"
+            "Zostaną usunięte: program, skróty na pulpicie i w menu, uruchamianie z systemem, "
+            "ustawienia i zapisane klucze API, dzienniki, pobrane składniki (obsługa karty "
+            "graficznej, whisper.cpp) oraz pobrane modele rozpoznawania mowy.\n\n"
+            "Program zamknie się teraz.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            deinstalacja.start_uninstall()
+        except OSError as error:
+            QMessageBox.critical(self, f"Odinstaluj {APP_NAME}", f"Nie udało się uruchomić deinstalacji: {error}")
+            return
+        window = self.parent()
+        self.close()
+        if window is not None:
+            window.close()   # zamyka silnik i serwer whisper.cpp, potem kończy program
+        else:
+            QApplication.quit()
 
     def _show_license(self, title: str, file_name: str) -> None:
         LicenseViewer(title, file_name, self).exec()

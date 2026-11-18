@@ -13,6 +13,8 @@ Pythona ani folderu BAPO-transcript.
 - Przycisk **Zgłoś problem**: szyfrowane zgłoszenie do autora; po awarii program sam je zaproponuje.
 - Licencja programu i lista licencji dołączonych składników (w instalatorze i folderze programu).
 - Automatyczne aktualizacje: program sam sprawdza nowe wydania, pobiera je i instaluje.
+- **Pomoc → O programie → Odinstaluj MyDict**: usuwa program, skróty z pulpitu i menu, ustawienia,
+  pobrane składniki (karta graficzna, whisper.cpp) i modele mowy. To samo robi deinstalacja z Ustawień Windows.
 - Obsługa macOS: wpisywanie tekstu do aktywnej aplikacji, globalny skrót, klucze API w pęku kluczy.
 - Instalator rozpoznaje kartę graficzną i sam pobiera potrzebne składniki (biblioteki NVIDIA, model
   mowy dobrany do sprzętu) — po instalacji program jest od razu gotowy.

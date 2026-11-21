@@ -34,6 +34,7 @@ import numpy as np
 
 
 from dyktowanie_app import APP_NAME, IS_MAC, __version__, config_file, data_dir, resource_dir
+from dyktowanie_core import HALLUCINATION_PATTERN
 
 IS_WINDOWS = sys.platform.startswith("win")
 HERE = resource_dir()
@@ -841,16 +842,7 @@ def check_key(kind: str, base_url: str, api_key: str) -> tuple[bool, str]:
 
 # Te same „halucynacje” co lokalnie — Whisper w chmurze też dopowiada je na ciszy.
 _HALLUCINATION_SENTENCE = re.compile(
-    r"[^.!?…]*(?:amara\.org"
-    r"|napisy\s+(?:stworzone|wykonane|przygotowane|zrobione)\s+przez"
-    r"|napisy\s+wykonała?"
-    r"|subskrybuj(?:cie)?\s+(?:kanał|nas)"
-    r"|dzięki\s+za\s+(?:obejrzenie|oglądanie)"
-    r"|dziękuję\s+za\s+(?:obejrzenie|oglądanie)"
-    r"|zdjęcia\s+i\s+montaż"
-    r"|thanks?\s+(?:you\s+)?for\s+watching"
-    r"|transcribed\s+by)[^.!?…]*[.!?…]*",
-    re.IGNORECASE,
+    rf"[^.!?…]*(?:{HALLUCINATION_PATTERN})[^.!?…]*[.!?…]*", re.IGNORECASE
 )
 
 

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton
 
 from dyktowanie_app import IS_MAC, IS_WINDOWS, data_dir
 
@@ -320,6 +320,28 @@ def set_mode(app: QApplication, mode: str):
     except AttributeError:   # starsze Qt: bez wymuszania motywu
         pass
     apply(app, mode)
+
+
+def add_save_cancel(buttons: QHBoxLayout, on_cancel, save_text: str, on_save):
+    """Dokłada do rzędu przycisków „Anuluj” i główny przycisk zapisu (domyślny na Enter)."""
+    cancel = QPushButton("Anuluj")
+    cancel.clicked.connect(on_cancel)
+    save = QPushButton(save_text)
+    save.setProperty("primary", True)
+    save.setDefault(True)
+    save.clicked.connect(on_save)
+    buttons.addWidget(cancel)
+    buttons.addWidget(save)
+
+
+def close_row(on_close) -> QHBoxLayout:
+    """Rząd z jednym przyciskiem „Zamknij” po prawej stronie."""
+    row = QHBoxLayout()
+    row.addStretch()
+    close = QPushButton("Zamknij")
+    close.clicked.connect(on_close)
+    row.addWidget(close)
+    return row
 
 
 def apply(app: QApplication, mode: str = "auto") -> dict:

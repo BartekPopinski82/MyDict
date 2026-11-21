@@ -62,7 +62,7 @@ def _setup_logging() -> Path:
     try:
         import faulthandler
 
-        faulthandler.enable(file=sys.stderr if sys.stderr is not None else open(log_path.with_name("konsola.log"), "a", encoding="utf-8"))
+        faulthandler.enable(file=sys.stderr)
     except Exception:
         pass
     return log_path

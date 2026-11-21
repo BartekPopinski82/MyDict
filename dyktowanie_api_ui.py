@@ -263,14 +263,7 @@ class ApiKeysDialog(QDialog):
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        cancel = QPushButton("Anuluj")
-        cancel.clicked.connect(self.reject)
-        save = QPushButton("Zapisz")
-        save.setProperty("primary", True)
-        save.setDefault(True)
-        save.clicked.connect(self._save)
-        buttons.addWidget(cancel)
-        buttons.addWidget(save)
+        motyw.add_save_cancel(buttons, self.reject, "Zapisz", self._save)
         layout.addLayout(buttons)
 
         if focus_provider in self.rows:
@@ -389,14 +382,7 @@ class CustomModelDialog(QDialog):
             delete.clicked.connect(self._delete)
             buttons.addWidget(delete)
         buttons.addStretch(1)
-        cancel = QPushButton("Anuluj")
-        cancel.clicked.connect(self.reject)
-        save = QPushButton("Zapisz i użyj")
-        save.setProperty("primary", True)
-        save.setDefault(True)
-        save.clicked.connect(self._save)
-        buttons.addWidget(cancel)
-        buttons.addWidget(save)
+        motyw.add_save_cancel(buttons, self.reject, "Zapisz i użyj", self._save)
         layout.addLayout(buttons)
 
         # wypełnienie

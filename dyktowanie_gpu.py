@@ -23,7 +23,7 @@ import sys
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 

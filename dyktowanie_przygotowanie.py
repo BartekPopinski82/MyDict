@@ -210,7 +210,7 @@ class SetupWindow(QDialog):
         layout.addWidget(helper_label(hardware.summary))
 
         self.rows: list[QLabel] = []
-        for _kind, text in self.steps:
+        for _ in self.steps:
             row = QLabel("")
             row.setTextFormat(Qt.TextFormat.RichText)
             self.rows.append(row)

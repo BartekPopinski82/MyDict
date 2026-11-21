@@ -125,7 +125,7 @@ class LocalAgreement:
 
 # Frazy, które Whisper „dopowiada” na ciszy lub szumie — pochodzą z napisów
 # filmowych, na których był trenowany. Usuwamy całe segmenty, które je zawierają.
-HALLUCINATION_RE = re.compile(
+HALLUCINATION_PATTERN = (
     r"amara\.org"
     r"|napisy\s+(?:stworzone|wykonane|przygotowane|zrobione)\s+przez"
     r"|napisy\s+wykonała?"
@@ -134,9 +134,9 @@ HALLUCINATION_RE = re.compile(
     r"|dziękuję\s+za\s+(?:obejrzenie|oglądanie)"
     r"|zdjęcia\s+i\s+montaż"
     r"|thanks?\s+(?:you\s+)?for\s+watching"
-    r"|transcribed\s+by",
-    re.IGNORECASE,
+    r"|transcribed\s+by"
 )
+HALLUCINATION_RE = re.compile(HALLUCINATION_PATTERN, re.IGNORECASE)
 
 
 def is_hallucinated_segment(

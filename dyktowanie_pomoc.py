@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 import dyktowanie_deinstalacja as deinstalacja
+import dyktowanie_motyw as motyw
 from dyktowanie_app import APP_NAME, ORGANIZATION, __version__, resource_dir
 from dyktowanie_komendy import COMMANDS
 
@@ -40,12 +41,7 @@ class LicenseViewer(QDialog):
         except OSError:
             text.setPlainText(f"Nie znaleziono pliku {file_name} w folderze programu.")
         layout.addWidget(text, 1)
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-        close = QPushButton("Zamknij")
-        close.clicked.connect(self.close)
-        buttons.addWidget(close)
-        layout.addLayout(buttons)
+        layout.addLayout(motyw.close_row(self.close))
 
 
 class HelpDialog(QDialog):
@@ -63,12 +59,7 @@ class HelpDialog(QDialog):
         self.tabs.addTab(self._about_page(), "O programie")
         layout.addWidget(self.tabs, 1)
 
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-        close = QPushButton("Zamknij")
-        close.clicked.connect(self.close)
-        buttons.addWidget(close)
-        layout.addLayout(buttons)
+        layout.addLayout(motyw.close_row(self.close))
         self.search.textChanged.connect(self._filter)
         QTimer.singleShot(0, self.table.resizeRowsToContents)
 
